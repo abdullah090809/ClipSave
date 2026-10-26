@@ -4,9 +4,9 @@ import {
   Text,
   FlatList,
   StyleSheet,
-  TouchableOpacity,
   Alert,
   Image,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,7 @@ import { typography } from '../../src/theme/typography';
 import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
 import { EmptyState } from '../../src/components/EmptyState';
+import { ScreenHeader } from '../../src/components/ScreenHeader';
 import {
   getHistory,
   removeHistoryEntryOnly,
@@ -47,19 +48,19 @@ export default function HistoryScreen() {
 
   const handleDeleteItem = (item: HistoryItem) => {
     Alert.alert(
-      'Delete Item',
-      `Choose how you would like to remove "${item.title}":`,
+      'Manage Saved Item',
+      `Choose how you would like to handle "${item.title}":`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove from History Only',
+          text: 'Remove from History (Keep File)',
           onPress: async () => {
             const updated = await removeHistoryEntryOnly(item.id);
             setHistoryItems(updated);
           },
         },
         {
-          text: 'Delete File from Device',
+          text: 'Permanently Delete Video File',
           style: 'destructive',
           onPress: async () => {
             const updated = await deleteHistoryEntryAndFile(item.id);
@@ -72,19 +73,19 @@ export default function HistoryScreen() {
 
   const handleClearAll = () => {
     Alert.alert(
-      'Clear History',
-      'What would you like to clear?',
+      'Clear Saved History',
+      'Choose which items to clear from ClipSave:',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear Records Only',
+          text: 'Clear History Records Only',
           onPress: async () => {
             await clearHistoryEntriesOnly();
             refreshHistory();
           },
         },
         {
-          text: 'Delete All Saved Files & Records',
+          text: 'Delete All Video Files & Records',
           style: 'destructive',
           onPress: async () => {
             await clearHistoryAndFiles();
@@ -97,42 +98,62 @@ export default function HistoryScreen() {
 
   const renderHistoryItem = ({ item }: { item: HistoryItem }) => {
     return (
-      <Card style={styles.itemCard}>
+      <Card variant="outlined" style={styles.itemCard}>
         <View style={styles.cardRow}>
+          {/* Thumbnail / Media Icon */}
           {item.thumbnailUrl ? (
             <Image
               source={{ uri: item.thumbnailUrl }}
-              style={[styles.thumbnail, { backgroundColor: colors.surfaceElevated }]}
+              style={[
+                styles.thumbnail,
+                {
+                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
+                  borderColor: colors.outlineVariant || colors.surfaceBorder,
+                },
+              ]}
               resizeMode="cover"
             />
           ) : (
-            <View style={[styles.thumbnail, styles.thumbnailPlaceholder, { backgroundColor: colors.surfaceElevated }]}>
-              <Ionicons name="videocam" size={24} color={colors.textMuted} />
+            <View
+              style={[
+                styles.thumbnail,
+                styles.thumbnailPlaceholder,
+                {
+                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
+                  borderColor: colors.outlineVariant || colors.surfaceBorder,
+                },
+              ]}
+            >
+              <Ionicons name="videocam" size={26} color={colors.textMuted} />
             </View>
           )}
 
+          {/* Video Metadata */}
           <View style={styles.infoArea}>
-            <Text style={[typography.h3, { color: colors.textPrimary }]} numberOfLines={2}>
-              {item.title}
+            <Text style={[typography.titleMedium, { color: colors.textPrimary }]} numberOfLines={2}>
+              {item.title || 'Untitled Video'}
             </Text>
-            <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>
-              {item.author}
-            </Text>
+            <View style={styles.authorRow}>
+              <Ionicons name="person-outline" size={13} color={colors.textMuted} />
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginLeft: 4 }]} numberOfLines={1}>
+                {item.author || 'Creator'}
+              </Text>
+            </View>
 
             <View style={styles.metaRow}>
-              <Text style={[typography.micro, { color: colors.textMuted }]}>
+              <Text style={[typography.labelMedium, { color: colors.textMuted }]}>
                 {formatBytes(item.fileSizeBytes)}
               </Text>
-              <Text style={[typography.micro, { color: colors.textMuted }]}>•</Text>
-              <Text style={[typography.micro, { color: colors.textMuted }]}>
+              <Text style={[typography.labelMedium, { color: colors.textMuted }]}>•</Text>
+              <Text style={[typography.labelMedium, { color: colors.textMuted }]}>
                 {formatDate(item.savedAt)}
               </Text>
             </View>
 
             {!item.fileExists && (
-              <View style={styles.missingBadge}>
-                <Ionicons name="warning-outline" size={14} color={colors.warning} />
-                <Text style={[typography.caption, { color: colors.warning, marginLeft: 4 }]}>
+              <View style={[styles.missingBadge, { backgroundColor: colors.warningLight }]}>
+                <Ionicons name="warning-outline" size={13} color={colors.warning} />
+                <Text style={[typography.labelMedium, { color: colors.warning, marginLeft: 4 }]}>
                   File moved or deleted
                 </Text>
               </View>
@@ -140,37 +161,37 @@ export default function HistoryScreen() {
           </View>
         </View>
 
+        {/* Action Controls */}
         <View style={styles.actionsRow}>
           {item.fileExists ? (
             <Button
-              title="Send to Gallery / Share"
-              icon={<Ionicons name="images-outline" size={16} color={colors.textPrimary} />}
+              title="Share / Send to Gallery"
+              icon={<Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />}
               onPress={() => shareSavedMedia(item.fileUri)}
               variant="secondary"
               style={styles.actionBtn}
+              accessibilityLabel={`Share or send ${item.title} to gallery`}
             />
           ) : (
             <Button
               title="Re-download"
               icon={<Ionicons name="download-outline" size={16} color={colors.primary} />}
-              onPress={() => {
-                router.push({
-                  pathname: '/',
-                });
-              }}
+              onPress={() => router.push('/')}
               variant="outline"
               style={styles.actionBtn}
+              accessibilityLabel={`Re-download ${item.title}`}
             />
           )}
 
-          <Button
-            title="Delete"
-            icon={<Ionicons name="trash-outline" size={16} color={colors.danger} />}
+          <Pressable
             onPress={() => handleDeleteItem(item)}
-            variant="ghost"
-            textStyle={{ color: colors.danger }}
-            style={styles.deleteBtn}
-          />
+            android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+            style={styles.deleteIconButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete options for ${item.title}`}
+          >
+            <Ionicons name="trash-outline" size={20} color={colors.danger} />
+          </Pressable>
         </View>
       </Card>
     );
@@ -178,31 +199,30 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={styles.header}>
-        <View>
-          <Text style={[typography.h1, { color: colors.textPrimary }]}>Saved History</Text>
-          <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>
-            {historyItems.length} saved {historyItems.length === 1 ? 'video' : 'videos'}
-          </Text>
-        </View>
-
-        {historyItems.length > 0 && (
-          <TouchableOpacity
-            onPress={handleClearAll}
-            style={styles.clearBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Clear history"
-          >
-            <Text style={[typography.captionMedium, { color: colors.danger }]}>Clear All</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      <ScreenHeader
+        title="Saved History"
+        subtitle={`${historyItems.length} ${historyItems.length === 1 ? 'saved video' : 'saved videos'}`}
+        rightAction={
+          historyItems.length > 0
+            ? {
+                label: 'Clear All',
+                icon: 'trash-outline',
+                destructive: true,
+                onPress: handleClearAll,
+                accessibilityLabel: 'Clear all history records or files',
+              }
+            : undefined
+        }
+      />
 
       {historyItems.length === 0 ? (
         <EmptyState
           iconName="time-outline"
-          title="No history yet"
-          description="Videos you resolve and download will be listed here for quick playback, sharing, or deletion."
+          title="No Saved History"
+          description="Videos you resolve and download will be organized here for easy playback, sharing, and management."
+          actionTitle="Download a Video"
+          actionIcon="arrow-down-circle"
+          onAction={() => router.push('/(tabs)')}
         />
       ) : (
         <FlatList
@@ -212,6 +232,7 @@ export default function HistoryScreen() {
           contentContainerStyle={styles.listContent}
           onRefresh={refreshHistory}
           refreshing={loading}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </SafeAreaView>
@@ -222,33 +243,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  clearBtn: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
   listContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxxl,
     gap: spacing.md,
   },
   itemCard: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   cardRow: {
     flexDirection: 'row',
     gap: spacing.md,
   },
   thumbnail: {
-    width: 72,
-    height: 72,
+    width: 76,
+    height: 76,
     borderRadius: borderRadius.md,
+    borderWidth: 1,
   },
   thumbnailPlaceholder: {
     alignItems: 'center',
@@ -257,28 +268,41 @@ const styles = StyleSheet.create({
   infoArea: {
     flex: 1,
   },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginTop: spacing.xs,
+    marginTop: 4,
   },
   missingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    alignSelf: 'flex-start',
     marginTop: spacing.xs,
   },
   actionsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
     marginTop: spacing.md,
   },
   actionBtn: {
     flex: 1,
-    minHeight: 42,
+    minHeight: spacing.touchTargetMin,
   },
-  deleteBtn: {
-    minHeight: 42,
-    paddingHorizontal: spacing.md,
+  deleteIconButton: {
+    width: spacing.touchTargetMin,
+    height: spacing.touchTargetMin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.full,
   },
 });

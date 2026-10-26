@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
@@ -34,32 +34,35 @@ export const DisclaimerBanner: React.FC = () => {
       style={[
         styles.container,
         {
-          backgroundColor: colors.surfaceElevated,
-          borderColor: colors.surfaceBorder,
+          backgroundColor: colors.surfaceContainerHigh || colors.surfaceElevated,
+          borderColor: colors.outlineVariant || colors.surfaceBorder,
         },
       ]}
       accessible={true}
       accessibilityRole="alert"
     >
       <View style={styles.content}>
-        <Ionicons name="information-circle-outline" size={20} color={colors.primary} style={styles.icon} />
+        <View style={[styles.iconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+          <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
+        </View>
         <View style={styles.textContainer}>
-          <Text style={[typography.captionMedium, { color: colors.textPrimary }]}>
-            Authorized Use & Transparency Notice
+          <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>
+            Authorized Use & Transparency
           </Text>
-          <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>
-            Only download media you own or have permission to save. URLs are verified through your configured resolver backend. ClipSave does not bypass private accounts or access controls.
+          <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2, lineHeight: 18 }]}>
+            Only download media you own or have permission to save. ClipSave queries public stream metadata and does not bypass private accounts.
           </Text>
         </View>
       </View>
-      <TouchableOpacity
+      <Pressable
         onPress={handleDismiss}
+        android_ripple={{ color: colors.ripple, borderless: true }}
         style={styles.dismissButton}
         accessibilityRole="button"
         accessibilityLabel="Dismiss notice"
       >
-        <Text style={[typography.captionMedium, { color: colors.primary }]}>Got it</Text>
-      </TouchableOpacity>
+        <Text style={[typography.labelMedium, { color: colors.primary }]}>Got it</Text>
+      </Pressable>
     </View>
   );
 };
@@ -75,9 +78,14 @@ const styles = StyleSheet.create({
   content: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    gap: spacing.sm,
   },
-  icon: {
-    marginRight: spacing.sm,
+  iconWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 2,
   },
   textContainer: {
@@ -87,8 +95,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     marginTop: spacing.xs,
     paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    minHeight: 36,
+    paddingHorizontal: spacing.md,
+    minHeight: spacing.touchTargetMin,
     justifyContent: 'center',
+    alignItems: 'center',
   },
 });

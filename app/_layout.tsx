@@ -24,6 +24,7 @@ function RootNavigation() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
+          animation: 'fade_from_bottom',
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -32,12 +33,14 @@ function RootNavigation() {
           options={{
             presentation: 'modal',
             headerShown: false,
+            animation: 'slide_from_bottom',
           }}
         />
         <Stack.Screen
           name="about"
           options={{
             headerShown: false,
+            animation: 'slide_from_right',
           }}
         />
       </Stack>

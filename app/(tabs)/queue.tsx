@@ -4,10 +4,10 @@ import {
   Text,
   FlatList,
   StyleSheet,
-  TouchableOpacity,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius } from '../../src/theme/spacing';
@@ -17,6 +17,7 @@ import { Badge } from '../../src/components/Badge';
 import { Button } from '../../src/components/Button';
 import { ProgressBar } from '../../src/components/ProgressBar';
 import { EmptyState } from '../../src/components/EmptyState';
+import { ScreenHeader } from '../../src/components/ScreenHeader';
 import {
   subscribeQueue,
   clearTerminalJobs,
@@ -33,6 +34,7 @@ import { DownloadJob } from '../../src/types';
 
 export default function QueueScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
 
   useEffect(() => {
@@ -42,9 +44,9 @@ export default function QueueScreen() {
   const handleCancel = (job: DownloadJob) => {
     Alert.alert(
       'Cancel Download',
-      'Are you sure you want to cancel this download? Any partial data will be safely removed.',
+      'Are you sure you want to cancel this download? Any partial temporary data will be safely removed.',
       [
-        { text: 'No', style: 'cancel' },
+        { text: 'Keep Downloading', style: 'cancel' },
         {
           text: 'Cancel Download',
           style: 'destructive',
@@ -54,11 +56,16 @@ export default function QueueScreen() {
     );
   };
 
+  const hasTerminalJobs = jobs.some(
+    (j) => j.state === 'COMPLETED' || j.state === 'FAILED' || j.state === 'CANCELLED'
+  );
+
   const renderJobItem = ({ item }: { item: DownloadJob }) => {
     const isDownloading = item.state === 'DOWNLOADING';
     const isPaused = item.state === 'PAUSED';
     const isCompleted = item.state === 'COMPLETED';
     const isFailed = item.state === 'FAILED';
+    const isFinalizing = item.state === 'FINALIZING';
 
     const progressFraction =
       item.totalBytes && item.totalBytes > 0
@@ -66,44 +73,89 @@ export default function QueueScreen() {
         : undefined;
 
     return (
-      <Card style={styles.jobCard}>
+      <Card
+        variant={isDownloading ? 'elevated' : 'outlined'}
+        style={styles.jobCard}
+      >
+        {/* Header Row: Title and Status Badge */}
         <View style={styles.cardHeader}>
           <View style={styles.titleArea}>
-            <Text style={[typography.h3, { color: colors.textPrimary }]} numberOfLines={2}>
-              {item.media.title}
+            <Text style={[typography.titleMedium, { color: colors.textPrimary }]} numberOfLines={2}>
+              {item.media.title || 'TikTok Video'}
             </Text>
-            <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>
-              {item.media.author}
-            </Text>
+            <View style={styles.creatorRow}>
+              <Ionicons name="person-outline" size={13} color={colors.textMuted} />
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginLeft: 4 }]} numberOfLines={1}>
+                {item.media.author || 'Creator'}
+              </Text>
+            </View>
           </View>
           <Badge label={item.state} state={item.state} />
         </View>
 
-        {/* Progress & Status */}
-        <View style={styles.progressSection}>
-          <ProgressBar progress={progressFraction} showPercentage={item.totalBytes !== undefined} />
-          <View style={styles.bytesRow}>
-            <Text style={[typography.caption, { color: colors.textSecondary }]}>
-              {formatBytes(item.bytesDownloaded)}
-              {item.totalBytes ? ` / ${formatBytes(item.totalBytes)}` : ' (Streaming)'}
-            </Text>
-            <Text style={[typography.captionMedium, { color: colors.textMuted }]}>
-              {item.statusMessage}
-            </Text>
+        {/* Active Progress Section (Downloading / Paused / Finalizing) */}
+        {(isDownloading || isPaused || isFinalizing) && (
+          <View style={styles.progressSection}>
+            <ProgressBar
+              progress={progressFraction}
+              showPercentage={item.totalBytes !== undefined}
+            />
+            <View style={styles.bytesRow}>
+              <Text style={[typography.labelMedium, { color: colors.textSecondary }]}>
+                {formatBytes(item.bytesDownloaded)}
+                {item.totalBytes ? ` / ${formatBytes(item.totalBytes)}` : ' (Streaming)'}
+              </Text>
+              <Text style={[typography.bodySmall, { color: colors.primary }]}>
+                {item.statusMessage}
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
 
-        {/* Error explanation if present */}
-        {item.errorMessage && (
-          <View style={[styles.errorBox, { backgroundColor: colors.dangerLight }]}>
-            <Ionicons name="alert-circle" size={16} color={colors.danger} />
-            <Text style={[typography.caption, { color: colors.danger, marginLeft: spacing.xs, flex: 1 }]}>
+        {/* Completed State Information */}
+        {isCompleted && (
+          <View
+            style={[
+              styles.completedInfoBox,
+              {
+                backgroundColor: colors.successLight,
+                borderColor: colors.success,
+              },
+            ]}
+          >
+            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+            <View style={{ flex: 1, marginLeft: spacing.xs }}>
+              <Text style={[typography.labelMedium, { color: colors.success }]}>
+                {item.statusMessage || 'Download Complete'}
+              </Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
+                {formatBytes(item.bytesDownloaded)} • Saved to device
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Error Explanation if Failed */}
+        {isFailed && item.errorMessage && (
+          <View
+            style={[
+              styles.errorBox,
+              {
+                backgroundColor: colors.dangerLight,
+                borderColor: colors.danger,
+              },
+            ]}
+            accessible={true}
+            accessibilityRole="alert"
+          >
+            <Ionicons name="alert-circle" size={18} color={colors.danger} />
+            <Text style={[typography.bodySmall, { color: colors.danger, marginLeft: spacing.xs, flex: 1 }]}>
               {item.errorMessage}
             </Text>
           </View>
         )}
 
-        {/* Control Actions */}
+        {/* Action Controls */}
         <View style={styles.cardActions}>
           {isDownloading && (
             <>
@@ -113,6 +165,7 @@ export default function QueueScreen() {
                 onPress={() => pauseDownload(item.id)}
                 variant="secondary"
                 style={styles.actionBtn}
+                accessibilityLabel="Pause downloading video"
               />
               <Button
                 title="Cancel"
@@ -121,6 +174,7 @@ export default function QueueScreen() {
                 variant="ghost"
                 textStyle={{ color: colors.danger }}
                 style={styles.actionBtn}
+                accessibilityLabel="Cancel downloading video"
               />
             </>
           )}
@@ -133,6 +187,7 @@ export default function QueueScreen() {
                 onPress={() => resumeDownload(item.id)}
                 variant="primary"
                 style={styles.actionBtn}
+                accessibilityLabel="Resume paused download"
               />
               <Button
                 title="Cancel"
@@ -141,6 +196,7 @@ export default function QueueScreen() {
                 variant="ghost"
                 textStyle={{ color: colors.danger }}
                 style={styles.actionBtn}
+                accessibilityLabel="Cancel paused download"
               />
             </>
           )}
@@ -152,22 +208,24 @@ export default function QueueScreen() {
               onPress={() => retryDownload(item.id)}
               variant="primary"
               style={styles.fullActionBtn}
+              accessibilityLabel="Retry failed download"
             />
           )}
 
           {isCompleted && item.finalFileUri && (
             <View style={{ width: '100%', gap: spacing.xs }}>
               {item.statusMessage === 'Saved to App Storage' && (
-                <Text style={[typography.caption, { color: colors.textMuted, textAlign: 'center', marginBottom: 2 }]}>
+                <Text style={[typography.bodySmall, { color: colors.textMuted, textAlign: 'center', marginBottom: 2 }]}>
                   In Expo Go, tap below to send this video to your Samsung Gallery or Photos:
                 </Text>
               )}
               <Button
                 title="Send to Gallery / Share"
-                icon={<Ionicons name="images-outline" size={16} color={colors.textPrimary} />}
+                icon={<Ionicons name="share-social-outline" size={18} color="#FFFFFF" />}
                 onPress={() => shareSavedMedia(item.finalFileUri!)}
-                variant="secondary"
+                variant="primary"
                 style={styles.fullActionBtn}
+                accessibilityLabel="Send downloaded video to gallery or share"
               />
             </View>
           )}
@@ -178,31 +236,29 @@ export default function QueueScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={styles.header}>
-        <View>
-          <Text style={[typography.h1, { color: colors.textPrimary }]}>Download Queue</Text>
-          <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>
-            {jobs.length} active or recent {jobs.length === 1 ? 'task' : 'tasks'}
-          </Text>
-        </View>
-
-        {jobs.some((j) => j.state === 'COMPLETED' || j.state === 'FAILED' || j.state === 'CANCELLED') && (
-          <TouchableOpacity
-            onPress={clearTerminalJobs}
-            style={styles.clearBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Clear finished tasks"
-          >
-            <Text style={[typography.captionMedium, { color: colors.primary }]}>Clear Finished</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      <ScreenHeader
+        title="Download Queue"
+        subtitle={`${jobs.length} ${jobs.length === 1 ? 'task' : 'tasks'} in queue`}
+        rightAction={
+          hasTerminalJobs
+            ? {
+                label: 'Clear Finished',
+                icon: 'trash-outline',
+                onPress: clearTerminalJobs,
+                accessibilityLabel: 'Clear all finished download tasks from queue',
+              }
+            : undefined
+        }
+      />
 
       {jobs.length === 0 ? (
         <EmptyState
           iconName="file-tray-outline"
-          title="Queue is empty"
-          description="Downloads you start from the Home screen will appear here with live progress and controls."
+          title="Queue is Empty"
+          description="Downloads you start from the Home screen will appear here with real-time streaming progress, pause/resume, and controls."
+          actionTitle="Start a Download"
+          actionIcon="arrow-down-circle"
+          onAction={() => router.push('/(tabs)')}
         />
       ) : (
         <FlatList
@@ -210,6 +266,7 @@ export default function QueueScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderJobItem}
           contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </SafeAreaView>
@@ -220,24 +277,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  clearBtn: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.sm,
-  },
   listContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxxl,
     gap: spacing.md,
   },
   jobCard: {
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -248,6 +294,11 @@ const styles = StyleSheet.create({
   titleArea: {
     flex: 1,
   },
+  creatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
   progressSection: {
     marginTop: spacing.md,
   },
@@ -255,14 +306,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.xs + 2,
+  },
+  completedInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginTop: spacing.md,
   },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.sm,
-    borderRadius: borderRadius.sm,
-    marginTop: spacing.sm,
+    padding: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginTop: spacing.md,
   },
   cardActions: {
     flexDirection: 'row',
@@ -271,10 +331,10 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    minHeight: 44,
+    minHeight: spacing.touchTargetMin,
   },
   fullActionBtn: {
     flex: 1,
-    minHeight: 44,
+    minHeight: spacing.touchTargetMin,
   },
 });

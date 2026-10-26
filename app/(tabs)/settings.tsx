@@ -5,9 +5,9 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  TouchableOpacity,
   TextInput,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,8 @@ import { spacing, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
 import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
+import { ScreenHeader } from '../../src/components/ScreenHeader';
+import { SegmentedControl, SegmentOption } from '../../src/components/SegmentedControl';
 import { getSettings, saveSettings } from '../../src/storage/settingsStore';
 import { cleanOrphanedTempFiles } from '../../src/services/mediaManager';
 import { clearHistoryEntriesOnly, clearHistoryAndFiles } from '../../src/storage/historyStore';
@@ -51,12 +53,12 @@ export default function SettingsScreen() {
 
   const handleClearHistory = () => {
     Alert.alert(
-      'Clear History',
+      'Clear Download History',
       'Choose an action to clear your history:',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear Records Only',
+          text: 'Clear Records Only (Keep Files)',
           onPress: async () => {
             await clearHistoryEntriesOnly();
             Alert.alert('Success', 'History records cleared. Saved video files were not deleted.');
@@ -81,126 +83,107 @@ export default function SettingsScreen() {
       return;
     }
     updateSetting({ backendBaseUrl: trimmed });
-    Alert.alert('Saved', 'Resolver backend URL updated.');
+    Alert.alert('Saved', 'Resolver backend URL successfully updated.');
   };
 
   if (!settings) return null;
 
+  const themeOptions: SegmentOption<ThemeMode>[] = [
+    { value: 'system', label: 'System', icon: 'hardware-chip-outline' },
+    { value: 'light', label: 'Light', icon: 'sunny-outline' },
+    { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+  ];
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={[typography.h1, { color: colors.textPrimary }]}>Settings</Text>
-          <Text style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}>
-            Preferences, storage, and backend configuration
-          </Text>
-        </View>
+      <ScreenHeader
+        title="Settings"
+        subtitle="Preferences, storage & resolver configuration"
+      />
 
-        {/* Theme Section */}
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Appearance Group */}
         <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
           APPEARANCE
         </Text>
-        <Card style={styles.card}>
-          <Text style={[typography.h3, { color: colors.textPrimary }]}>Theme Mode</Text>
-          <View style={styles.themeRow}>
-            {(['system', 'light', 'dark'] as ThemeMode[]).map((mode) => {
-              const active = themeMode === mode;
-              return (
-                <TouchableOpacity
-                  key={mode}
-                  onPress={() => setThemeMode(mode)}
-                  style={[
-                    styles.themeBtn,
-                    {
-                      backgroundColor: active ? colors.primaryLight : colors.surfaceElevated,
-                      borderColor: active ? colors.primary : colors.surfaceBorder,
-                    },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Switch to ${mode} theme`}
-                >
-                  <Ionicons
-                    name={mode === 'system' ? 'hardware-chip-outline' : mode === 'light' ? 'sunny-outline' : 'moon-outline'}
-                    size={18}
-                    color={active ? colors.primary : colors.textSecondary}
-                  />
-                  <Text
-                    style={[
-                      typography.captionMedium,
-                      { color: active ? colors.primary : colors.textPrimary, textTransform: 'capitalize' },
-                    ]}
-                  >
-                    {mode}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+        <Card variant="outlined" style={styles.card}>
+          <Text style={[typography.titleMedium, { color: colors.textPrimary, marginBottom: spacing.sm }]}>
+            Theme Mode
+          </Text>
+          <SegmentedControl
+            options={themeOptions}
+            selectedValue={themeMode}
+            onSelect={setThemeMode}
+            accessibilityLabel="Select appearance theme mode"
+          />
         </Card>
 
         {/* Download Behavior */}
         <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
           DOWNLOAD BEHAVIOR
         </Text>
-        <Card style={styles.card}>
+        <Card variant="outlined" style={styles.card}>
           <View style={styles.switchRow}>
             <View style={styles.switchText}>
-              <Text style={[typography.h3, { color: colors.textPrimary }]}>Auto-start Download</Text>
-              <Text style={[typography.caption, { color: colors.textSecondary }]}>
+              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Auto-start Download</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
                 Automatically start downloading immediately after resolving metadata
               </Text>
             </View>
             <Switch
               value={settings.autoDownloadOnResolve}
               onValueChange={(val) => updateSetting({ autoDownloadOnResolve: val })}
-              trackColor={{ false: colors.surfaceBorder, true: colors.primary }}
+              trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
+              thumbColor={Platform.OS === 'android' ? (settings.autoDownloadOnResolve ? '#FFFFFF' : '#F4F3F4') : undefined}
             />
           </View>
 
-          <View style={[styles.divider, { backgroundColor: colors.surfaceBorder }]} />
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
 
           <View style={styles.switchRow}>
             <View style={styles.switchText}>
-              <Text style={[typography.h3, { color: colors.textPrimary }]}>Save to Android Gallery</Text>
-              <Text style={[typography.caption, { color: colors.textSecondary }]}>
+              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Save to Android Gallery</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
                 Insert completed videos into public gallery (ClipSave album)
               </Text>
             </View>
             <Switch
               value={settings.saveToGallery}
               onValueChange={(val) => updateSetting({ saveToGallery: val })}
-              trackColor={{ false: colors.surfaceBorder, true: colors.primary }}
+              trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
+              thumbColor={Platform.OS === 'android' ? (settings.saveToGallery ? '#FFFFFF' : '#F4F3F4') : undefined}
             />
           </View>
         </Card>
 
-        {/* Backend & Developer Mode */}
+        {/* Resolver Configuration */}
         <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
           RESOLVER CONFIGURATION
         </Text>
-        <Card style={styles.card}>
+        <Card variant="outlined" style={styles.card}>
           <View style={styles.switchRow}>
             <View style={styles.switchText}>
-              <Text style={[typography.h3, { color: colors.textPrimary }]}>Mock Resolver Mode</Text>
-              <Text style={[typography.caption, { color: colors.textSecondary }]}>
+              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Mock Resolver Mode</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
                 Use deterministic local test fixtures without network or extractor requests
               </Text>
             </View>
             <Switch
               value={settings.useMockResolver}
               onValueChange={(val) => updateSetting({ useMockResolver: val })}
-              trackColor={{ false: colors.surfaceBorder, true: colors.primary }}
+              trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
+              thumbColor={Platform.OS === 'android' ? (settings.useMockResolver ? '#FFFFFF' : '#F4F3F4') : undefined}
             />
           </View>
 
           {!settings.useMockResolver && (
             <>
-              <View style={[styles.divider, { backgroundColor: colors.surfaceBorder }]} />
-              <Text style={[typography.h3, { color: colors.textPrimary, marginTop: spacing.sm }]}>
+              <View style={[styles.divider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+              <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: spacing.xs }]}>
                 Backend Base URL
               </Text>
-              <Text style={[typography.caption, { color: colors.textSecondary }]}>
-                FastAPI resolver host (default: http://127.0.0.1:8080)
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                FastAPI resolver host (LAN IP or domain)
               </Text>
 
               <View style={styles.urlInputRow}>
@@ -209,7 +192,7 @@ export default function SettingsScreen() {
                     styles.urlInput,
                     {
                       backgroundColor: colors.inputBackground,
-                      borderColor: colors.inputBorder,
+                      borderColor: colors.outlineVariant || colors.inputBorder,
                       color: colors.textPrimary,
                     },
                   ]}
@@ -217,7 +200,7 @@ export default function SettingsScreen() {
                   onChangeText={setBackendUrlInput}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="http://127.0.0.1:8080"
+                  placeholder="http://192.168.1.21:8080"
                   placeholderTextColor={colors.textMuted}
                 />
                 <Button
@@ -235,13 +218,14 @@ export default function SettingsScreen() {
         <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
           STORAGE & DATA
         </Text>
-        <Card style={styles.card}>
+        <Card variant="outlined" style={styles.card}>
           <Button
             title="Clear Temporary Cache"
             icon={<Ionicons name="trash-bin-outline" size={18} color={colors.textPrimary} />}
             onPress={handleClearCache}
             variant="secondary"
             style={styles.storageBtn}
+            accessibilityHint="Deletes unreferenced temporary files while keeping saved videos"
           />
 
           <Button
@@ -251,25 +235,29 @@ export default function SettingsScreen() {
             variant="ghost"
             textStyle={{ color: colors.danger }}
             style={styles.storageBtnSpacing}
+            accessibilityHint="Open dialog to clear history records or saved video files"
           />
         </Card>
 
-        {/* About & Legal Link */}
-        <Card elevated style={styles.aboutCard}>
-          <TouchableOpacity
-            style={styles.aboutRow}
-            onPress={() => router.push('/about')}
-            accessibilityRole="button"
-            accessibilityLabel="View About, Privacy & Open Source Notices"
-          >
+        {/* About & Legal Card */}
+        <Card
+          variant="elevated"
+          onPress={() => router.push('/about')}
+          style={styles.aboutCard}
+          accessibilityLabel="Open About ClipSave and privacy notices"
+        >
+          <View style={styles.aboutRow}>
+            <View style={[styles.aboutIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+              <Ionicons name="information-circle" size={22} color={colors.primary} />
+            </View>
             <View style={styles.aboutText}>
-              <Text style={[typography.h3, { color: colors.textPrimary }]}>About ClipSave</Text>
-              <Text style={[typography.caption, { color: colors.textSecondary }]}>
-                Version 1.0.0 • Privacy & Legal Disclosures • Licenses
+              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>About ClipSave</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                Version 1.0.0 • Privacy & Legal Notices • Architecture
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </TouchableOpacity>
+          </View>
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -283,10 +271,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.xxxl,
   },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
   sectionHeader: {
     paddingHorizontal: spacing.lg,
     marginTop: spacing.lg,
@@ -298,22 +282,7 @@ const styles = StyleSheet.create({
   aboutCard: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.lg,
-  },
-  themeRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  themeBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 1.5,
-    minHeight: 44,
+    marginBottom: spacing.lg,
   },
   switchRow: {
     flexDirection: 'row',
@@ -339,23 +308,32 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     fontSize: 14,
-    minHeight: 44,
+    minHeight: spacing.touchTargetMin,
   },
   saveUrlBtn: {
-    minHeight: 44,
+    minHeight: spacing.touchTargetMin,
     paddingHorizontal: spacing.lg,
   },
   storageBtn: {
     width: '100%',
+    minHeight: spacing.touchTargetMin,
   },
   storageBtnSpacing: {
     width: '100%',
     marginTop: spacing.sm,
+    minHeight: spacing.touchTargetMin,
   },
   aboutRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  aboutIconWrapper: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
   },
   aboutText: {
     flex: 1,

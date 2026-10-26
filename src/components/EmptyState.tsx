@@ -2,16 +2,17 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing } from '../theme/spacing';
+import { spacing, borderRadius } from '../theme/spacing';
 import { typography } from '../theme/typography';
 import { Button } from './Button';
 
-interface EmptyStateProps {
+export interface EmptyStateProps {
   iconName: keyof typeof Ionicons.glyphMap;
   title: string;
   description: string;
   actionTitle?: string;
   onAction?: () => void;
+  actionIcon?: keyof typeof Ionicons.glyphMap;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -20,21 +21,41 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   description,
   actionTitle,
   onAction,
+  actionIcon,
 }) => {
   const { colors } = useTheme();
 
   return (
     <View style={styles.container}>
-      <View style={[styles.iconCircle, { backgroundColor: colors.surfaceElevated }]}>
-        <Ionicons name={iconName} size={40} color={colors.textMuted} />
+      <View
+        style={[
+          styles.iconContainer,
+          {
+            backgroundColor: colors.surfaceContainerHigh || colors.surfaceElevated,
+            borderColor: colors.outlineVariant || colors.surfaceBorder,
+          },
+        ]}
+      >
+        <Ionicons name={iconName} size={44} color={colors.primary} />
       </View>
-      <Text style={[typography.h2, { color: colors.textPrimary, marginTop: spacing.lg }]}>
+      <Text
+        style={[
+          typography.headlineMedium,
+          { color: colors.textPrimary, marginTop: spacing.lg, textAlign: 'center' },
+        ]}
+      >
         {title}
       </Text>
       <Text
         style={[
           typography.body,
-          { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, maxWidth: 320 },
+          {
+            color: colors.textSecondary,
+            textAlign: 'center',
+            marginTop: spacing.sm,
+            maxWidth: 320,
+            lineHeight: 22,
+          },
         ]}
       >
         {description}
@@ -42,9 +63,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       {actionTitle && onAction && (
         <Button
           title={actionTitle}
+          icon={actionIcon ? <Ionicons name={actionIcon} size={18} color="#FFFFFF" /> : undefined}
           onPress={onAction}
-          variant="outline"
-          style={{ marginTop: spacing.xl }}
+          variant="primary"
+          style={{ marginTop: spacing.xl, minWidth: 200 }}
         />
       )}
     </View>
@@ -58,10 +80,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: spacing.xxl,
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  iconContainer: {
+    width: 88,
+    height: 88,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

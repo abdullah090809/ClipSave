@@ -3,15 +3,15 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../src/theme/ThemeContext';
-import { spacing } from '../src/theme/spacing';
+import { spacing, borderRadius } from '../src/theme/spacing';
 import { typography } from '../src/theme/typography';
 import { Card } from '../src/components/Card';
+import { ScreenHeader } from '../src/components/ScreenHeader';
 
 export default function AboutScreen() {
   const { colors } = useTheme();
@@ -19,76 +19,100 @@ export default function AboutScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          accessibilityRole="button"
-          accessibilityLabel="Go back to settings"
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={[typography.h2, { color: colors.textPrimary }]}>About & Privacy</Text>
-        <View style={{ width: 44 }} />
-      </View>
+      <ScreenHeader
+        title="About & Privacy"
+        subtitle="Version 1.0.0 (Build 100)"
+        onBack={() => router.back()}
+        backAccessibilityLabel="Return to Settings"
+      />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Brand & Version */}
-        <View style={styles.brandBox}>
-          <View style={[styles.logoCircle, { backgroundColor: colors.primaryLight }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Brand Hero */}
+        <View style={styles.brandHero}>
+          <View
+            style={[
+              styles.logoCircle,
+              {
+                backgroundColor: colors.primaryContainer || colors.primaryLight,
+                borderColor: colors.primary,
+              },
+            ]}
+          >
             <Ionicons name="film" size={32} color={colors.primary} />
           </View>
-          <Text style={[typography.h1, { color: colors.textPrimary, marginTop: spacing.md }]}>
+          <Text style={[typography.headlineLarge, { color: colors.textPrimary, marginTop: spacing.md }]}>
             ClipSave
           </Text>
-          <Text style={[typography.caption, { color: colors.textMuted }]}>
-            Version 1.0.0 (Build 100)
+          <Text style={[typography.bodySmall, { color: colors.textMuted, marginTop: 2 }]}>
+            Open-Source Verified TikTok Media Downloader
           </Text>
         </View>
 
-        {/* Legal & Independent Entity Notice */}
-        <Card style={styles.card}>
-          <Text style={[typography.h3, { color: colors.textPrimary }]}>Legal Disclaimer & Independence</Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            ClipSave is an independent open-source utility and is not affiliated with, endorsed, sponsored, or associated with TikTok, ByteDance, or any of their affiliates.
+        {/* Legal Disclaimer & Independence */}
+        <Card variant="outlined" style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
+              Legal Disclaimer & Independence
+            </Text>
+          </View>
+          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
+            ClipSave is an independent open-source utility and is not affiliated with, endorsed, sponsored, or associated with TikTok, ByteDance Ltd., or any of their affiliates.
           </Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            ClipSave is intended solely for saving personal videos you own, content in the public domain, or media for which you have received express authorization from the rights holder.
-          </Text>
-        </Card>
-
-        {/* Privacy & Data Flow */}
-        <Card style={styles.card}>
-          <Text style={[typography.h3, { color: colors.textPrimary }]}>Privacy Architecture</Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            • <Text style={{ fontWeight: '600', color: colors.textPrimary }}>Zero Tracking:</Text> ClipSave contains no analytics SDKs, advertising trackers, or device fingerprinting libraries.
-          </Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            • <Text style={{ fontWeight: '600', color: colors.textPrimary }}>Data Flow:</Text> When you submit a link, only the URL string is sent to your configured ClipSave resolver backend to query available public stream metadata. Video bytes are streamed directly from the media source to your device; video content is never routed through or stored on the backend.
-          </Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            • <Text style={{ fontWeight: '600', color: colors.textPrimary }}>Local Storage:</Text> Download history and preferences remain entirely on your local device.
+          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
+            ClipSave is intended solely for saving personal videos you own, public domain works, or media for which you have received authorization from the original copyright holder.
           </Text>
         </Card>
 
-        {/* Limitations & Technical Constraints */}
-        <Card style={styles.card}>
-          <Text style={[typography.h3, { color: colors.textPrimary }]}>Platform Limitations</Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            • Private accounts, age gates, regional geoblocks, and authenticated content cannot and will not be accessed.
+        {/* Privacy Architecture */}
+        <Card variant="outlined" style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="lock-closed-outline" size={20} color={colors.success} />
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
+              Privacy Architecture
+            </Text>
+          </View>
+          <View style={styles.bulletList}>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22 }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Zero Tracking:</Text> ClipSave contains no advertising SDKs, analytics beacons, or third-party device trackers.
+            </Text>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22, marginTop: spacing.xs }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Data Flow:</Text> Only the video link you provide is forwarded to your resolver backend to look up public stream URLs. Video bytes stream directly from the CDN to your device storage.
+            </Text>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22, marginTop: spacing.xs }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Local Device Storage:</Text> Download history and preferences remain strictly on your local device.
+            </Text>
+          </View>
+        </Card>
+
+        {/* Platform Limitations */}
+        <Card variant="outlined" style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="warning-outline" size={20} color={colors.warning} />
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
+              Platform Limitations
+            </Text>
+          </View>
+          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
+            • Private accounts, friends-only clips, regional geoblocks, and age-gated videos cannot be resolved.
           </Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            • Availability of clean or original sources depends entirely on what the public platform provides. ClipSave does not alter video pixels to erase platform watermarks.
+          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
+            • Clean/original stream availability depends on the public media served by TikTok's servers. ClipSave does not blur or modify video pixels.
           </Text>
         </Card>
 
-        {/* Contact & Open Source */}
-        <Card style={styles.card}>
-          <Text style={[typography.h3, { color: colors.textPrimary }]}>Open Source Notices</Text>
-          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm }]}>
-            Built with React Native, Expo, TypeScript, and FastAPI. Pinned dependency licenses are audited in docs/DEPENDENCIES.md.
+        {/* Open Source Notices */}
+        <Card variant="outlined" style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="code-slash-outline" size={20} color={colors.accent} />
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
+              Open Source Notices
+            </Text>
+          </View>
+          <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
+            Built with React Native, Expo SDK 58, TypeScript, and FastAPI. Pinned dependency licenses are audited in docs/DEPENDENCIES.md.
           </Text>
-          <Text style={[typography.caption, { color: colors.textMuted, marginTop: spacing.md }]}>
+          <Text style={[typography.bodySmall, { color: colors.textMuted, marginTop: spacing.md }]}>
             Maintainer Contact: [PROJECT_OWNER_CONTACT_PLACEHOLDER]
           </Text>
         </Card>
@@ -101,36 +125,31 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    height: 56,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   scrollContent: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxxl,
     gap: spacing.md,
   },
-  brandBox: {
+  brandHero: {
     alignItems: 'center',
-    marginVertical: spacing.lg,
+    marginVertical: spacing.md,
   },
   logoCircle: {
     width: 64,
     height: 64,
-    borderRadius: 32,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   card: {
-    padding: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bulletList: {
+    marginTop: spacing.sm,
   },
 });

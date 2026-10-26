@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { View, Platform, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeContext';
+import { borderRadius, elevation } from '../../src/theme/spacing';
 import { subscribeQueue } from '../../src/storage/queueStore';
 
 export default function TabLayout() {
@@ -21,16 +23,19 @@ export default function TabLayout() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: colors.tabBarBackground,
-          borderTopColor: colors.tabBarBorder,
-          height: 60,
-          paddingBottom: 8,
+          borderTopColor: colors.outlineVariant || colors.tabBarBorder,
+          borderTopWidth: 1,
+          height: Platform.OS === 'android' ? 68 : 64,
+          paddingBottom: Platform.OS === 'android' ? 10 : 8,
           paddingTop: 8,
+          ...(Platform.OS === 'android' ? elevation.level2 : {}),
         },
-        tabBarActiveTintColor: colors.tabBarActive,
-        tabBarInactiveTintColor: colors.tabBarInactive,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '500',
+          fontWeight: '600',
+          letterSpacing: 0.2,
         },
       }}
     >
@@ -38,8 +43,22 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Download',
-          tabBarIcon: ({ color, size }: { color: any; size: number }) => (
-            <Ionicons name="arrow-down-circle" size={size} color={color ?? colors.tabBarInactive} />
+          tabBarAccessibilityLabel: 'Download tab, paste and resolve TikTok videos',
+          tabBarIcon: ({ color, focused }: { color: any; focused: boolean }) => (
+            <View
+              style={[
+                styles.iconWrapper,
+                focused && {
+                  backgroundColor: colors.primaryContainer || colors.primaryLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name={focused ? 'arrow-down-circle' : 'arrow-down-circle-outline'}
+                size={22}
+                color={focused ? colors.primary : color}
+              />
+            </View>
           ),
         }}
       />
@@ -47,9 +66,37 @@ export default function TabLayout() {
         name="queue"
         options={{
           title: 'Queue',
-          ...(activeDownloadCount > 0 ? { tabBarBadge: activeDownloadCount } : {}),
-          tabBarIcon: ({ color, size }: { color: any; size: number }) => (
-            <Ionicons name="layers" size={size} color={color ?? colors.tabBarInactive} />
+          tabBarAccessibilityLabel: `Download queue tab, ${activeDownloadCount} active downloads`,
+          ...(activeDownloadCount > 0
+            ? {
+                tabBarBadge: activeDownloadCount,
+                tabBarBadgeStyle: {
+                  backgroundColor: colors.primary,
+                  color: '#FFFFFF',
+                  fontSize: 11,
+                  fontWeight: '700',
+                  minWidth: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  lineHeight: 18,
+                },
+              }
+            : {}),
+          tabBarIcon: ({ color, focused }: { color: any; focused: boolean }) => (
+            <View
+              style={[
+                styles.iconWrapper,
+                focused && {
+                  backgroundColor: colors.primaryContainer || colors.primaryLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name={focused ? 'layers' : 'layers-outline'}
+                size={22}
+                color={focused ? colors.primary : color}
+              />
+            </View>
           ),
         }}
       />
@@ -57,8 +104,22 @@ export default function TabLayout() {
         name="history"
         options={{
           title: 'History',
-          tabBarIcon: ({ color, size }: { color: any; size: number }) => (
-            <Ionicons name="time" size={size} color={color ?? colors.tabBarInactive} />
+          tabBarAccessibilityLabel: 'Saved video history tab',
+          tabBarIcon: ({ color, focused }: { color: any; focused: boolean }) => (
+            <View
+              style={[
+                styles.iconWrapper,
+                focused && {
+                  backgroundColor: colors.primaryContainer || colors.primaryLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name={focused ? 'time' : 'time-outline'}
+                size={22}
+                color={focused ? colors.primary : color}
+              />
+            </View>
           ),
         }}
       />
@@ -66,11 +127,35 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color, size }: { color: any; size: number }) => (
-            <Ionicons name="settings-sharp" size={size} color={color ?? colors.tabBarInactive} />
+          tabBarAccessibilityLabel: 'Application settings tab',
+          tabBarIcon: ({ color, focused }: { color: any; focused: boolean }) => (
+            <View
+              style={[
+                styles.iconWrapper,
+                focused && {
+                  backgroundColor: colors.primaryContainer || colors.primaryLight,
+                },
+              ]}
+            >
+              <Ionicons
+                name={focused ? 'settings-sharp' : 'settings-outline'}
+                size={22}
+                color={focused ? colors.primary : color}
+              />
+            </View>
           ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconWrapper: {
+    width: 44,
+    height: 28,
+    borderRadius: borderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
