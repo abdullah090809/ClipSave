@@ -10,6 +10,17 @@ def clear_rate_limits():
 
 
 @pytest.mark.asyncio
+async def test_root_endpoint():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "ClipSave" in data["app"]
+
+
+@pytest.mark.asyncio
 async def test_healthz_and_readyz():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
