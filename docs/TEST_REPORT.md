@@ -11,18 +11,21 @@
 | Suite | Runner | Total Tests | Passed | Failed | Skipped | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Mobile TypeScript Strict Check** | `tsc --noEmit` | Entire project | Clean (0 errors) | 0 | 0 | **PASSED** |
-| **Mobile Unit Test Suite** | Jest 30.5.2 | 33 | 33 | 0 | 0 | **PASSED** |
-| **Backend Integration Suite** | pytest 9.1.1 | 15 | 15 | 0 | 0 | **PASSED** |
+| **Mobile Unit Test Suite** | Jest 30.5.2 | 49 | 49 | 0 | 0 | **PASSED** |
+| **Backend Integration Suite** | pytest 9.1.1 | 22 | 22 | 0 | 0 | **PASSED** |
+| **Total Automated Tests** | Jest & Pytest | **71** | **71** | **0** | **0** | **PASSED (100%)** |
 | **Expo Configuration Check** | `npx expo config` | Config validation | Clean | 0 | 0 | **PASSED** |
 | **Backend Benchmark / Load** | `load_test.py` | 50 requests | 50 | 0 | 0 | **VERIFIED** |
-| **Android Physical/Emulator E2E**| Maestro / ADB | Scenarios 1–25 | 0 | 0 | 25 | **NOT RUN** (Reason below) |
+| **Android Physical/Emulator E2E**| Phone Test Runbook | Scenarios A–M | 0 | 0 | 13 | **NOT RUN** (Reason below) |
 
 ---
 
 ## 2. Detailed Test Results
 
 ### 2.1 Mobile Frontend Test Suite (Jest)
-Command: `npm test`
+Command: `npm test`  
+Result: 9 suites passed, 49 tests passed
+
 - `src/utils/filenameSanitizer.test.ts` (6 tests) -> **PASS**
   - sanitizes standard title with mp4 extension
   - removes illegal path traversal characters (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`)
@@ -58,28 +61,60 @@ Command: `npm test`
   - adds history item and retrieves it
   - removes history entry without deleting file
   - clearHistoryEntriesOnly clears all records
+- `src/storage/settingsStore.test.ts` (3 tests) -> **PASS**
+  - returns default settings when no preferences stored
+  - saveSettings merges partial updates and persists to storage
+  - getDefaultBackendUrl returns valid default address
 - `src/services/apiClient.test.ts` (3 tests) -> **PASS**
   - resolves valid public TikTok URL in mock resolver mode
   - rejects private video link with appropriate user-facing explanation
   - rejects deleted or missing video link
+- `src/services/downloadEngine.test.ts` (7 tests) -> **PASS**
+  - `UT-DL-01`: startDownload creates job and completes successfully
+  - `UT-DL-02`: pauseDownload transitions active session to PAUSED
+  - `UT-DL-03`: resumeDownload resumes paused download session to COMPLETED
+  - `UT-DL-04`: cancelDownload terminates session and cleans temp file
+  - `UT-DL-05`: retryDownload increments retry count and restarts stream
+  - `UT-DL-06`: server HTTP error sets state to FAILED with retryable flag
+  - `UT-DL-07`: storage save failure marks job FAILED without retry
+- `src/services/mediaManager.test.ts` (6 tests) -> **PASS**
+  - `UT-MM-01`: ensureTempDirectory creates directory when it does not exist
+  - `UT-MM-02`: cleanOrphanedTempFiles deletes files older than threshold
+  - `UT-MM-03`: saveCompletedMedia rejects corrupted or zero-byte file
+  - `UT-MM-04`: saveCompletedMedia saves to gallery when permissions granted
+  - `UT-MM-05`: saveCompletedMedia falls back to document storage when gallery denied
+  - `UT-MM-06`: shareSavedMedia invokes native share dialog
 
 ### 2.2 Backend Test Suite (Pytest)
-Command: `.\backend\.venv\Scripts\pytest -v backend\tests`
-- `backend/tests/test_rate_limit.py::test_rate_limit_sliding_window` -> **PASSED**
-- `backend/tests/test_resolve_api.py::test_healthz_and_readyz` -> **PASSED**
-- `backend/tests/test_resolve_api.py::test_resolve_valid_mock_url` -> **PASSED**
-- `backend/tests/test_resolve_api.py::test_resolve_invalid_domain_rejected` -> **PASSED**
-- `backend/tests/test_resolve_api.py::test_security_headers_present` -> **PASSED**
-- `backend/tests/test_ssrf.py::test_blocked_ip_ranges` -> **PASSED**
-- `backend/tests/test_ssrf.py::test_verify_url_ssrf_safety_direct_ip` -> **PASSED**
-- `backend/tests/test_ssrf.py::test_verify_url_ssrf_safety_public` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_valid_tiktok_urls` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_reject_lookalike_domains` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_reject_invalid_schemes` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_reject_userinfo` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_reject_non_standard_ports` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_reject_missing_path` -> **PASSED**
-- `backend/tests/test_url_validation.py::test_reject_control_characters` -> **PASSED**
+Command: `.\backend\.venv\Scripts\pytest -v backend\tests`  
+Result: 4 modules passed, 22 tests passed
+
+- `backend/tests/test_rate_limit.py` (1 test) -> **PASSED**
+  - `test_rate_limit_sliding_window`
+- `backend/tests/test_resolve_api.py` (9 tests) -> **PASSED**
+  - `test_healthz_and_readyz`
+  - `test_resolve_valid_mock_url`
+  - `test_resolve_invalid_domain_rejected`
+  - `test_resolve_malformed_json`
+  - `test_resolve_missing_url_field`
+  - `test_resolve_non_string_url`
+  - `test_security_headers_present`
+  - `test_request_id_forwarding`
+  - `test_cors_local_network_origin`
+- `backend/tests/test_ssrf.py` (5 tests) -> **PASSED**
+  - `test_blocked_ip_ranges` (Loopback, RFC 1918, CGNAT, Cloud metadata, IPv6 Unique/Link Local, Multicast)
+  - `test_verify_url_ssrf_safety_direct_ip`
+  - `test_verify_url_ssrf_safety_public`
+  - `test_verify_url_ssrf_dns_rebinding_simulation`
+  - `test_verify_url_ssrf_metadata_dns_simulation`
+- `backend/tests/test_url_validation.py` (7 tests) -> **PASSED**
+  - `test_valid_tiktok_urls`
+  - `test_reject_lookalike_domains`
+  - `test_reject_invalid_schemes`
+  - `test_reject_userinfo`
+  - `test_reject_non_standard_ports`
+  - `test_reject_missing_path`
+  - `test_reject_control_characters`
 
 ### 2.3 Backend Mocked Concurrency & Load Benchmark
 Command: `.\backend\.venv\Scripts\python backend\load_test.py`
@@ -93,7 +128,6 @@ Command: `.\backend\.venv\Scripts\python backend\load_test.py`
   - Median (p50): **73.05 ms**
   - 95th Percentile (p95): **335.46 ms**
   - 99th Percentile (p99): **365.06 ms**
-- *Note:* These metrics reflect local mock resolver throughput. Real TikTok network resolution latency will vary based on upstream platform CDN response times.
 
 ---
 
@@ -101,6 +135,7 @@ Command: `.\backend\.venv\Scripts\python backend\load_test.py`
 
 | Test ID | Description | Reason NOT RUN |
 | :--- | :--- | :--- |
-| **E2E-01 to E2E-25** | Android Emulator & Physical Device User Journey Scenarios | Android SDK / ADB is not installed in this execution environment; no connected Android emulator or physical device was available. In accordance with Rule 3 ("never fabricate screenshots, device coverage, benchmark results"), these are recorded as `NOT RUN`. |
-| **LIVE-TIKTOK-01** | High-volume live scraping tests against TikTok servers | Strictly disallowed by Rule 7.2 ("Never load-test TikTok or any third-party service. Load-test only your local/staging backend with a mocked extractor."). |
-| **SOAK-01** | 6-hour continuous soak test | Marked `NOT RUN` due to interactive session execution constraints; local load test script verified baseline. |
+| **Phone Tests A–M** | Android Physical Device Scenarios A–M | Requires physical Android phone running Expo Go on the local Wi-Fi network. Prepared step-by-step in `docs/PHONE_TEST_CHECKLIST.md`. |
+| **LIVE-TIKTOK-01** | High-volume live scraping tests against TikTok servers | Disallowed by Rule 7.2 ("Never load-test TikTok or any third-party service. Load-test only your local/staging backend with a mocked extractor."). |
+| **SOAK-01** | 6-hour continuous soak test | Marked `NOT RUN` due to interactive session constraints; local load test script verified baseline stability. |
+| **BUILD-APK-01** | Standalone Android APK local Gradle compilation | Blocked because host machine has Java 8 (`1.8.0_401`) and lacks Android SDK (`ANDROID_HOME`). JDK 17 is required for React Native 0.88 native builds. |
