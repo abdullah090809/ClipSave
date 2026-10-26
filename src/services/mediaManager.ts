@@ -129,23 +129,34 @@ export async function saveCompletedMedia(
       };
     }
 
-    // Try saving to device MediaLibrary / Scoped Storage
+    // Try saving to device MediaLibrary / Scoped Storage (Gallery)
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status === 'granted') {
+      let perm = await MediaLibrary.getPermissionsAsync();
+      if (perm.status !== 'granted') {
+        perm = await MediaLibrary.requestPermissionsAsync();
+      }
+      if (perm.status !== 'granted') {
+        perm = await MediaLibrary.requestPermissionsAsync(true);
+      }
+
+      if (perm.status === 'granted') {
         const asset = await MediaLibrary.createAssetAsync(destinationPath);
-        const album = await MediaLibrary.getAlbumAsync('ClipSave');
-        if (album) {
-          await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-        } else {
-          await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
+        try {
+          const album = await MediaLibrary.getAlbumAsync('ClipSave');
+          if (album) {
+            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+          } else {
+            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
+          }
+        } catch {
+          // Album grouping can fail on some Android versions due to scoped storage, but asset is already created in MediaStore!
         }
 
         return {
           success: true,
           finalUri: asset.uri || destinationPath,
           savedToGallery: true,
-          message: 'Saved to Gallery in ClipSave album.',
+          message: 'Saved to Gallery.',
         };
       }
     } catch {

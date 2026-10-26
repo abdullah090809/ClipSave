@@ -22,6 +22,7 @@ jest.mock('expo-file-system/legacy', () => ({
 
 // Mock expo-media-library
 jest.mock('expo-media-library', () => ({
+  getPermissionsAsync: jest.fn(async () => ({ status: 'undetermined' })),
   requestPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   createAssetAsync: jest.fn(async (uri) => ({ uri })),
   getAlbumAsync: jest.fn(async () => null),

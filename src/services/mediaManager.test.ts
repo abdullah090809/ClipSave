@@ -105,7 +105,10 @@ describe('mediaManager', () => {
       size: 5000000,
     });
 
-    (MediaLibrary.requestPermissionsAsync as jest.Mock).mockResolvedValueOnce({
+    (MediaLibrary.getPermissionsAsync as jest.Mock).mockResolvedValueOnce({
+      status: 'denied',
+    });
+    (MediaLibrary.requestPermissionsAsync as jest.Mock).mockResolvedValue({
       status: 'denied',
     });
 
