@@ -13,7 +13,7 @@ export default function TabLayout() {
   useEffect(() => {
     return subscribeQueue((jobs) => {
       const active = jobs.filter((j) => j.state === 'DOWNLOADING' || j.state === 'FINALIZING').length;
-      setActiveDownloadCount(active);
+      setActiveDownloadCount((prev) => (prev !== active ? active : prev));
     });
   }, []);
 
