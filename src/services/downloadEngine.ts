@@ -109,7 +109,18 @@ async function executeDownloadStream(
       statusMessage: 'Streaming video bytes...',
     });
 
+    let lastProgressTime = 0;
     const callback = (data: FileSystem.DownloadProgressData) => {
+      const now = Date.now();
+      const isComplete =
+        data.totalBytesExpectedToWrite > 0 &&
+        data.totalBytesWritten >= data.totalBytesExpectedToWrite;
+
+      if (!isComplete && now - lastProgressTime < 120) {
+        return;
+      }
+      lastProgressTime = now;
+
       const bytesDownloaded = data.totalBytesWritten;
       const totalBytes =
         data.totalBytesExpectedToWrite > 0

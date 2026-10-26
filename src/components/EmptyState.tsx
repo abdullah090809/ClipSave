@@ -10,9 +10,9 @@ export interface EmptyStateProps {
   iconName: keyof typeof Ionicons.glyphMap;
   title: string;
   description: string;
-  actionTitle?: string;
-  onAction?: () => void;
-  actionIcon?: keyof typeof Ionicons.glyphMap;
+  actionTitle?: string | undefined;
+  onAction?: (() => void) | undefined;
+  actionIcon?: keyof typeof Ionicons.glyphMap | undefined;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({

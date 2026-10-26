@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 import { View, StyleSheet, Animated, Text } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, borderRadius } from '../theme/spacing';
@@ -10,52 +10,39 @@ export interface ProgressBarProps {
   statusLabel?: string;
 }
 
-export const ProgressBar: React.FC<ProgressBarProps> = ({
+export const ProgressBar: React.FC<ProgressBarProps> = memo(({
   progress,
   showPercentage = true,
   statusLabel,
 }) => {
   const { colors } = useTheme();
-  const indeterminateAnim = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(progress ?? 0)).current;
-
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
   const isIndeterminate = progress === undefined || progress === null;
 
   useEffect(() => {
     if (isIndeterminate) {
       const loop = Animated.loop(
         Animated.sequence([
-          Animated.timing(indeterminateAnim, {
+          Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 1100,
-            useNativeDriver: false,
+            duration: 750,
+            useNativeDriver: true,
           }),
-          Animated.timing(indeterminateAnim, {
-            toValue: 0,
-            duration: 1100,
-            useNativeDriver: false,
+          Animated.timing(pulseAnim, {
+            toValue: 0.35,
+            duration: 750,
+            useNativeDriver: true,
           }),
         ])
       );
       loop.start();
       return () => loop.stop();
-    } else {
-      Animated.timing(progressAnim, {
-        toValue: Math.min(Math.max(progress, 0), 1),
-        duration: 250,
-        useNativeDriver: false,
-      }).start();
     }
-  }, [isIndeterminate, progress]);
+  }, [isIndeterminate]);
 
   const clampedProgress = Math.min(Math.max(progress ?? 0, 0), 1);
   const percentageInt = Math.round(clampedProgress * 100);
   const percentageString = isIndeterminate ? 'Streaming...' : `${percentageInt}%`;
-
-  const widthInterpolated = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
 
   return (
     <View
@@ -80,20 +67,17 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
               styles.indeterminateBar,
               {
                 backgroundColor: colors.primary,
-                left: indeterminateAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['-10%', '80%'],
-                }),
+                opacity: pulseAnim,
               },
             ]}
           />
         ) : (
-          <Animated.View
+          <View
             style={[
               styles.fill,
               {
                 backgroundColor: colors.primary,
-                width: widthInterpolated,
+                width: `${percentageInt}%`,
               },
             ]}
           />
@@ -118,14 +102,16 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
       )}
     </View>
   );
-};
+});
+
+ProgressBar.displayName = 'ProgressBar';
 
 const styles = StyleSheet.create({
   container: {
     width: '100%',
   },
   track: {
-    height: 7,
+    height: 6,
     borderRadius: borderRadius.full,
     overflow: 'hidden',
     position: 'relative',
@@ -136,16 +122,14 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
   },
   indeterminateBar: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: '35%',
+    width: '100%',
+    height: '100%',
     borderRadius: borderRadius.full,
   },
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.xs + 2,
+    marginTop: spacing.xs,
   },
 });

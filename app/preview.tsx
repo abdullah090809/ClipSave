@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, elevation } from '../src/theme/spacing';
 import { typography } from '../src/theme/typography';
-import { Badge } from '../src/components/Badge';
 import { Button } from '../src/components/Button';
 import { startDownload } from '../src/services/downloadEngine';
 import { formatBytes, formatDuration } from '../src/utils/formatters';
@@ -87,8 +86,8 @@ export default function PreviewModal() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-      {/* Top Modal Header with Drag Indicator and Dismiss Button */}
-      <View style={styles.sheetHeader}>
+      {/* Top Modal Header */}
+      <View style={styles.header}>
         <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
         <View style={styles.topBarRow}>
           <Pressable
@@ -100,134 +99,107 @@ export default function PreviewModal() {
           >
             <Ionicons name="close" size={24} color={colors.textPrimary} />
           </Pressable>
-          <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Video Confirmation</Text>
+          <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>
+            Confirm Download
+          </Text>
           <View style={{ width: 44 }} />
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Cinematic 16:9 Hero Card */}
+        {/* Cinematic Media Hero */}
         <View
           style={[
-            styles.heroContainer,
-            {
-              backgroundColor: colors.surfaceContainerLowest || colors.surface,
-              borderColor: colors.outlineVariant || colors.surfaceBorder,
-            },
+            styles.mediaHero,
+            { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated },
             Platform.OS === 'android' ? elevation.level2 : {},
           ]}
         >
-          {/* Media Player Canvas */}
-          <View style={[styles.mediaCanvas, { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated }]}>
-            {media.thumbnailUrl && !imageError ? (
-              <Image
-                source={{ uri: media.thumbnailUrl }}
-                style={styles.thumbnailImage}
-                resizeMode="cover"
-                onError={() => setImageError(true)}
-                accessibilityLabel={`Thumbnail for ${media.title}`}
-              />
-            ) : (
-              <View style={styles.placeholderThumbnail}>
-                <Ionicons name="film-outline" size={54} color={colors.textMuted} />
-              </View>
-            )}
+          {media.thumbnailUrl && !imageError ? (
+            <Image
+              source={{ uri: media.thumbnailUrl }}
+              style={styles.heroImage}
+              resizeMode="cover"
+              onError={() => setImageError(true)}
+              accessibilityLabel={`Thumbnail for ${media.title}`}
+            />
+          ) : (
+            <View style={styles.heroPlaceholder}>
+              <Ionicons name="videocam-outline" size={56} color={colors.textMuted} />
+            </View>
+          )}
 
-            {/* Duration pill overlay */}
+          {/* Overlaid Badges */}
+          <View style={styles.heroOverlay}>
+            <View style={styles.creatorOverlayPill}>
+              <Ionicons name="person-circle-outline" size={14} color="#FFFFFF" />
+              <Text style={[typography.micro, { color: '#FFFFFF', marginLeft: 4, fontWeight: '700' }]} numberOfLines={1}>
+                {media.author || 'Creator'}
+              </Text>
+            </View>
+
             {media.durationSeconds !== undefined && media.durationSeconds > 0 && (
-              <View style={styles.durationPill}>
-                <Ionicons name="time" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={[typography.labelMedium, { color: '#FFFFFF' }]}>
+              <View style={styles.durationOverlayPill}>
+                <Ionicons name="time-outline" size={12} color="#FFFFFF" />
+                <Text style={[typography.micro, { color: '#FFFFFF', marginLeft: 3, fontWeight: '700' }]}>
                   {formatDuration(media.durationSeconds)}
                 </Text>
               </View>
             )}
           </View>
+        </View>
 
-          {/* Details & Metadata Body */}
-          <View style={styles.detailsArea}>
-            <View style={styles.badgeRow}>
-              <Badge label="Public Stream Ready" variant="primary" />
-              {media.isCleanSourceVerified && (
-                <Badge label="Verified Clean MP4" variant="success" />
-              )}
-            </View>
+        {/* Media Details */}
+        <View style={styles.detailsContainer}>
+          <Text style={[typography.headlineSmall, { color: colors.textPrimary }]} numberOfLines={3}>
+            {media.title || 'TikTok Video'}
+          </Text>
 
-            {/* Video Title */}
-            <Text style={[typography.headlineMedium, { color: colors.textPrimary, marginTop: spacing.md }]}>
-              {media.title || 'TikTok Video'}
-            </Text>
-
-            {/* Creator Attribution */}
-            <View style={styles.authorRow}>
-              <View style={[styles.authorAvatar, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
-                <Ionicons name="person" size={14} color={colors.primary} />
-              </View>
-              <Text style={[typography.titleSmall, { color: colors.primary, marginLeft: spacing.sm }]}>
-                {media.author || 'Creator'}
-                {media.authorUsername ? ` (@${media.authorUsername.replace(/^@/, '')})` : ''}
+          {/* Quick Specifications Strip */}
+          <View style={styles.specsRow}>
+            <View
+              style={[
+                styles.specChip,
+                { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated },
+              ]}
+            >
+              <Text style={[typography.micro, { color: colors.textMuted }]}>ESTIMATED SIZE</Text>
+              <Text style={[typography.titleSmall, { color: colors.primary, marginTop: 2 }]}>
+                {formatBytes(media.estimatedSizeBytes)}
               </Text>
             </View>
 
-            {/* 3-Column Material Metric Chips */}
             <View
               style={[
-                styles.metricRow,
-                {
-                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
-                  borderColor: colors.outlineVariant || colors.surfaceBorder,
-                },
+                styles.specChip,
+                { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated },
               ]}
             >
-              <View style={styles.metricItem}>
-                <Text style={[typography.micro, { color: colors.textMuted }]}>FILE SIZE</Text>
-                <Text style={[typography.labelLarge, { color: colors.textPrimary, marginTop: 2 }]}>
-                  {formatBytes(media.estimatedSizeBytes)}
-                </Text>
-              </View>
-
-              <View style={[styles.metricDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
-
-              <View style={styles.metricItem}>
-                <Text style={[typography.micro, { color: colors.textMuted }]}>FORMAT</Text>
-                <Text style={[typography.labelLarge, { color: colors.textPrimary, marginTop: 2, textTransform: 'uppercase' }]}>
-                  {media.format || 'MP4'}
-                </Text>
-              </View>
-
-              <View style={[styles.metricDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
-
-              <View style={styles.metricItem}>
-                <Text style={[typography.micro, { color: colors.textMuted }]}>TYPE</Text>
-                <Text style={[typography.labelLarge, { color: colors.textPrimary, marginTop: 2 }]}>
-                  VOD Video
-                </Text>
-              </View>
+              <Text style={[typography.micro, { color: colors.textMuted }]}>FORMAT</Text>
+              <Text style={[typography.titleSmall, { color: colors.textPrimary, marginTop: 2, textTransform: 'uppercase' }]}>
+                {media.format || 'MP4'}
+              </Text>
             </View>
 
-            {/* Safe Authorization Notice */}
             <View
               style={[
-                styles.safeNoticeBox,
-                {
-                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
-                  borderColor: colors.outlineVariant || colors.surfaceBorder,
-                },
+                styles.specChip,
+                { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated },
               ]}
             >
-              <Ionicons name="shield-checkmark-outline" size={16} color={colors.success} />
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginLeft: spacing.xs, flex: 1 }]}>
-                Verified stream will download chunk-by-chunk to your device storage.
+              <Text style={[typography.micro, { color: colors.textMuted }]}>STREAM</Text>
+              <Text style={[typography.titleSmall, { color: colors.success, marginTop: 2 }]}>
+                Verified Clean
               </Text>
             </View>
           </View>
         </View>
       </ScrollView>
 
-      {/* Floating Bottom Action Bar */}
+      {/* Fixed Bottom Decision Dock */}
       <View
         style={[
-          styles.bottomActionBar,
+          styles.decisionDock,
           {
             backgroundColor: colors.surfaceContainerLowest || colors.surface,
             borderTopColor: colors.outlineVariant || colors.surfaceBorder,
@@ -236,24 +208,27 @@ export default function PreviewModal() {
         ]}
       >
         <Button
-          title="Cancel"
-          onPress={() => router.back()}
-          variant="secondary"
-          size="lg"
-          style={styles.cancelBtn}
-          disabled={downloadStarting}
-          accessibilityLabel="Cancel and return to home"
-        />
-        <Button
-          title="Download Now"
-          icon={<Ionicons name="download" size={20} color="#FFFFFF" />}
+          title={downloadStarting ? 'Starting Download...' : `Download Video (${formatBytes(media.estimatedSizeBytes)})`}
+          icon={<Ionicons name="download" size={18} color="#FFFFFF" />}
           onPress={handleStartDownload}
           variant="primary"
           size="lg"
           loading={downloadStarting}
           style={styles.downloadBtn}
-          accessibilityLabel="Start downloading video now"
+          accessibilityLabel={`Confirm and download ${media.title}`}
         />
+
+        <Pressable
+          onPress={() => router.back()}
+          android_ripple={{ color: colors.ripple, borderless: false }}
+          style={styles.cancelBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel and return to home"
+        >
+          <Text style={[typography.labelMedium, { color: colors.textSecondary }]}>
+            Cancel
+          </Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -263,129 +238,112 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  sheetHeader: {
+  header: {
     alignItems: 'center',
-    paddingTop: spacing.xs,
+    paddingTop: 8,
   },
   dragHandle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    marginBottom: spacing.xs,
+    marginBottom: 8,
   },
   topBarRow: {
+    width: '100%',
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
     paddingHorizontal: spacing.md,
-    minHeight: 48,
   },
   closeBtn: {
-    width: spacing.touchTargetMin,
-    height: spacing.touchTargetMin,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: borderRadius.full,
   },
   scrollContent: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingTop: spacing.xs,
-    paddingBottom: 110, // Space for sticky bottom action bar
+    paddingBottom: 120,
   },
-  heroContainer: {
+  mediaHero: {
+    width: '100%',
+    height: 230,
     borderRadius: borderRadius.xl,
-    borderWidth: 1.5,
     overflow: 'hidden',
-  },
-  mediaCanvas: {
-    width: '100%',
-    height: 220,
     position: 'relative',
+    marginBottom: spacing.md,
   },
-  thumbnailImage: {
+  heroImage: {
     width: '100%',
     height: '100%',
   },
-  placeholderThumbnail: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  durationPill: {
-    position: 'absolute',
-    bottom: spacing.sm,
-    right: spacing.sm,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.full,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  detailsArea: {
-    padding: spacing.xl,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  authorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  authorAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  metricRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    marginTop: spacing.lg,
-  },
-  metricItem: {
+  heroPlaceholder: {
     flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  metricDivider: {
-    width: 1,
-    height: 26,
+  heroOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  safeNoticeBox: {
+  creatorOverlayPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    marginTop: spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+    maxWidth: '65%',
   },
-  bottomActionBar: {
+  durationOverlayPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  detailsContainer: {
+    marginTop: spacing.xs,
+  },
+  specsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  specChip: {
+    flex: 1,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  decisionDock: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: Platform.OS === 'android' ? spacing.md : spacing.xl,
     borderTopWidth: 1,
   },
-  cancelBtn: {
-    flex: 1,
-  },
   downloadBtn: {
-    flex: 1.8,
+    height: 52,
+    borderRadius: borderRadius.lg,
+  },
+  cancelBtn: {
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xs,
   },
   emptyContainer: {
     flex: 1,
@@ -396,15 +354,15 @@ const styles = StyleSheet.create({
   emptyIconCircle: {
     width: 80,
     height: 80,
-    borderRadius: borderRadius.xl,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   topBar: {
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    minHeight: 56,
   },
 });

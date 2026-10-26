@@ -4,13 +4,25 @@ import { HistoryItem } from '../types';
 
 const HISTORY_KEY = '@clipsave_history_v1';
 
-export const getHistory = async (): Promise<HistoryItem[]> => {
+// Fast direct reader that avoids bridge flooding
+const readRawHistory = async (): Promise<HistoryItem[]> => {
   try {
     const raw = await AsyncStorage.getItem(HISTORY_KEY);
     if (!raw) return [];
-    const items: HistoryItem[] = JSON.parse(raw);
-    
-    // Check file existence asynchronously without blocking
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+};
+
+export const getHistory = async (verifyFiles = false): Promise<HistoryItem[]> => {
+  try {
+    const items = await readRawHistory();
+    if (!verifyFiles || items.length === 0) {
+      return items.map((it) => ({ ...it, fileExists: it.fileExists ?? true }));
+    }
+
+    // Only verify files across the bridge when explicitly requested
     const verifiedItems = await Promise.all(
       items.map(async (item) => {
         try {
@@ -28,8 +40,7 @@ export const getHistory = async (): Promise<HistoryItem[]> => {
 };
 
 export const addHistoryItem = async (item: HistoryItem): Promise<HistoryItem[]> => {
-  const current = await getHistory();
-  // Filter duplicate ID if exists
+  const current = await readRawHistory();
   const filtered = current.filter((h) => h.id !== item.id);
   const updated = [item, ...filtered];
   await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
@@ -37,14 +48,14 @@ export const addHistoryItem = async (item: HistoryItem): Promise<HistoryItem[]> 
 };
 
 export const removeHistoryEntryOnly = async (id: string): Promise<HistoryItem[]> => {
-  const current = await getHistory();
+  const current = await readRawHistory();
   const updated = current.filter((h) => h.id !== id);
   await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
   return updated;
 };
 
 export const deleteHistoryEntryAndFile = async (id: string): Promise<HistoryItem[]> => {
-  const current = await getHistory();
+  const current = await readRawHistory();
   const target = current.find((h) => h.id === id);
   if (target && target.fileUri) {
     try {
@@ -53,7 +64,9 @@ export const deleteHistoryEntryAndFile = async (id: string): Promise<HistoryItem
       // Ignore if file was already removed
     }
   }
-  return removeHistoryEntryOnly(id);
+  const updated = current.filter((h) => h.id !== id);
+  await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+  return updated;
 };
 
 export const clearHistoryEntriesOnly = async (): Promise<void> => {
@@ -61,7 +74,7 @@ export const clearHistoryEntriesOnly = async (): Promise<void> => {
 };
 
 export const clearHistoryAndFiles = async (): Promise<void> => {
-  const current = await getHistory();
+  const current = await readRawHistory();
   for (const item of current) {
     try {
       if (item.fileUri) {
