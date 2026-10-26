@@ -52,6 +52,34 @@ async def test_resolve_invalid_domain_rejected():
 
 
 @pytest.mark.asyncio
+async def test_resolve_malformed_json():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/resolve",
+            content=b"{malformed json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_resolve_missing_url_field():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/v1/resolve", json={"wrongKey": "https://tiktok.com"})
+        assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_resolve_non_string_url():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/v1/resolve", json={"url": 99999})
+        assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_security_headers_present():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -60,3 +88,26 @@ async def test_security_headers_present():
         assert resp.headers["x-content-type-options"] == "nosniff"
         assert resp.headers["x-frame-options"] == "DENY"
         assert resp.headers["server"] == "ClipSave-Resolver"
+
+
+@pytest.mark.asyncio
+async def test_request_id_forwarding():
+    custom_id = "clipsave-trace-test-uuid-999"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/healthz", headers={"X-Request-ID": custom_id})
+        assert resp.headers.get("x-request-id") == custom_id
+
+
+@pytest.mark.asyncio
+async def test_cors_local_network_origin():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {
+            "Origin": "http://192.168.1.100:8081",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type",
+        }
+        resp = await client.options("/v1/resolve", headers=headers)
+        assert resp.status_code == 200
+        assert resp.headers.get("access-control-allow-origin") == "http://192.168.1.100:8081"
