@@ -156,13 +156,20 @@ export default function QueueScreen() {
           )}
 
           {isCompleted && item.finalFileUri && (
-            <Button
-              title="Share / Open Video"
-              icon={<Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />}
-              onPress={() => shareSavedMedia(item.finalFileUri!)}
-              variant="secondary"
-              style={styles.fullActionBtn}
-            />
+            <View style={{ width: '100%', gap: spacing.xs }}>
+              {item.statusMessage === 'Saved to App Storage' && (
+                <Text style={[typography.caption, { color: colors.textMuted, textAlign: 'center', marginBottom: 2 }]}>
+                  In Expo Go, tap below to send this video to your Samsung Gallery or Photos:
+                </Text>
+              )}
+              <Button
+                title="Send to Gallery / Share"
+                icon={<Ionicons name="images-outline" size={16} color={colors.textPrimary} />}
+                onPress={() => shareSavedMedia(item.finalFileUri!)}
+                variant="secondary"
+                style={styles.fullActionBtn}
+              />
+            </View>
           )}
         </View>
       </Card>

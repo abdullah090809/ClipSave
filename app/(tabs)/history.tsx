@@ -143,8 +143,8 @@ export default function HistoryScreen() {
         <View style={styles.actionsRow}>
           {item.fileExists ? (
             <Button
-              title="Share / Open"
-              icon={<Ionicons name="share-outline" size={16} color={colors.textPrimary} />}
+              title="Send to Gallery / Share"
+              icon={<Ionicons name="images-outline" size={16} color={colors.textPrimary} />}
               onPress={() => shareSavedMedia(item.fileUri)}
               variant="secondary"
               style={styles.actionBtn}
