@@ -12,6 +12,7 @@ jest.mock('expo-file-system/legacy', () => ({
   makeDirectoryAsync: jest.fn(async () => {}),
   readDirectoryAsync: jest.fn(async () => []),
   moveAsync: jest.fn(async () => {}),
+  copyAsync: jest.fn(async () => {}),
   createDownloadResumable: jest.fn(() => ({
     downloadAsync: jest.fn(async () => ({ status: 200, uri: 'file:///mock/downloaded.mp4' })),
     pauseAsync: jest.fn(async () => {}),

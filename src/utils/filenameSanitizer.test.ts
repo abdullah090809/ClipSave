@@ -46,4 +46,23 @@ describe('sanitizeFilename', () => {
     expect(output.length).toBeLessThanOrEqual(130);
     expect(output.endsWith('.mp4')).toBe(true);
   });
+
+  test('strips hashtags (#) and uri-breaking characters (% ? &) to prevent Android moveAsync rejection', () => {
+    const input = '#datealive #animeedit #margakagenou #creatoranimeone #fyp';
+    const output = sanitizeFilename(input);
+    expect(output).not.toContain('#');
+    expect(output).toBe('datealive animeedit margakagenou creatoranimeone fyp.mp4');
+  });
+
+  test('strips URI reserved and special characters from filename', () => {
+    const input = '100% real video & audio? #trending + viral=yes';
+    const output = sanitizeFilename(input);
+    expect(output).not.toContain('%');
+    expect(output).not.toContain('#');
+    expect(output).not.toContain('?');
+    expect(output).not.toContain('&');
+    expect(output).not.toContain('+');
+    expect(output).not.toContain('=');
+    expect(output.endsWith('.mp4')).toBe(true);
+  });
 });

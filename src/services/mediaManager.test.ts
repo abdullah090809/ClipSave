@@ -127,6 +127,43 @@ describe('mediaManager', () => {
     );
   });
 
+  test('UT-MM-07: falls back to safe timestamp filename if initial moveAsync fails', async () => {
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      size: 5000000,
+    });
+
+    // Mock initial moveAsync failing, subsequent moveAsync succeeding
+    (FileSystem.moveAsync as jest.Mock)
+      .mockRejectedValueOnce(new Error("Call to function 'ExponentFileSystem.moveAsync' has been rejected."))
+      .mockResolvedValueOnce(undefined);
+
+    const result = await saveCompletedMedia('file:///tmp/download.tmp', 'broken#name.mp4', false);
+    expect(result.success).toBe(true);
+    expect(result.finalUri).toMatch(/ClipSave_\d+\.mp4$/);
+    expect(FileSystem.moveAsync).toHaveBeenCalledTimes(2);
+  });
+
+  test('UT-MM-08: attempts MediaStore asset creation even if permissions check throws in Expo Go', async () => {
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      size: 5000000,
+    });
+
+    // Simulate Expo Go throwing PermissionsException
+    (MediaLibrary.getPermissionsAsync as jest.Mock).mockRejectedValueOnce(
+      new Error("Due to changes in Android's permission requirements, Expo Go can no longer provide full access...")
+    );
+    (MediaLibrary.createAssetAsync as jest.Mock).mockResolvedValueOnce({
+      uri: 'file:///gallery/saved.mp4',
+    });
+
+    const result = await saveCompletedMedia('file:///tmp/good.tmp', 'video.mp4', true);
+    expect(result.success).toBe(true);
+    expect(result.savedToGallery).toBe(true);
+    expect(MediaLibrary.createAssetAsync).toHaveBeenCalled();
+  });
+
   test('UT-MM-REG-01: does NOT delete active downloading file even if older than 15 minutes', async () => {
     const activeJob: DownloadJob = {
       id: 'job_active_123',

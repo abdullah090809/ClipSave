@@ -15,11 +15,18 @@ export function sanitizeFilename(title: string | undefined, defaultPrefix: strin
   // Remove control characters (\x00-\x1f, \x7f)
   let clean = title.replace(/[\x00-\x1F\x7F]/g, '');
 
-  // Remove path traversal characters and illegal filesystem characters: \ / : * ? " < > |
-  clean = clean.replace(/[\\/:*?"<>|]/g, '_');
+  // Strip hashtags (#) - replace with empty string so #hashtag becomes hashtag
+  clean = clean.replace(/#/g, '');
+
+  // Remove path traversal and illegal filesystem / URI characters: \ / : * ? " < > | % & { } ~ ` ! @ $ = + ; , ^
+  clean = clean.replace(/[\\/:*?"<>|%&{}~`!@$=+;,^]/g, '_');
 
   // Replace multiple underscores or spaces with a single space/underscore
-  clean = clean.replace(/_{2,}/g, '_').trim();
+  clean = clean.replace(/_{2,}/g, '_');
+  clean = clean.replace(/\s{2,}/g, ' ').trim();
+
+  // Strip leading and trailing periods, spaces, underscores, and dashes
+  clean = clean.replace(/^[\s._-]+|[\s._-]+$/g, '');
 
   // If title was only invalid characters or whitespace
   if (!clean || clean === '.' || clean === '..') {
@@ -34,7 +41,7 @@ export function sanitizeFilename(title: string | undefined, defaultPrefix: strin
 
   // Truncate to safe length
   if (clean.length > MAX_FILENAME_LENGTH) {
-    clean = clean.slice(0, MAX_FILENAME_LENGTH).trim();
+    clean = clean.slice(0, MAX_FILENAME_LENGTH).trim().replace(/^[\s._-]+|[\s._-]+$/g, '');
   }
 
   // Ensure .mp4 extension

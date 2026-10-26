@@ -114,12 +114,31 @@ export async function saveCompletedMedia(
       };
     }
 
-    // Move from .tmp to permanent app storage
-    const destinationPath = `${FileSystem.documentDirectory}${sanitizedFilename}`;
-    await FileSystem.moveAsync({
-      from: sourceTempPath,
-      to: destinationPath,
-    });
+    // Move from .tmp to permanent app storage with resilient fallback
+    let destinationPath = `${FileSystem.documentDirectory}${sanitizedFilename}`;
+    try {
+      await FileSystem.moveAsync({
+        from: sourceTempPath,
+        to: destinationPath,
+      });
+    } catch (moveErr) {
+      console.warn('Initial moveAsync failed, falling back to safe timestamp filename:', moveErr);
+      const fallbackFilename = `ClipSave_${Date.now()}.mp4`;
+      destinationPath = `${FileSystem.documentDirectory}${fallbackFilename}`;
+      try {
+        await FileSystem.moveAsync({
+          from: sourceTempPath,
+          to: destinationPath,
+        });
+      } catch (fallbackMoveErr) {
+        console.warn('Fallback moveAsync failed, attempting copy and delete:', fallbackMoveErr);
+        await FileSystem.copyAsync({
+          from: sourceTempPath,
+          to: destinationPath,
+        });
+        await FileSystem.deleteAsync(sourceTempPath, { idempotent: true });
+      }
+    }
 
     if (!requestGallery) {
       return {
@@ -130,6 +149,7 @@ export async function saveCompletedMedia(
     }
 
     // Try saving to device MediaLibrary / Scoped Storage (Gallery)
+    let permExplicitlyDenied = false;
     try {
       let perm = await MediaLibrary.getPermissionsAsync();
       if (perm.status !== 'granted') {
@@ -138,29 +158,40 @@ export async function saveCompletedMedia(
       if (perm.status !== 'granted') {
         perm = await MediaLibrary.requestPermissionsAsync(true);
       }
-
-      if (perm.status === 'granted') {
-        const asset = await MediaLibrary.createAssetAsync(destinationPath);
-        try {
-          const album = await MediaLibrary.getAlbumAsync('ClipSave');
-          if (album) {
-            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-          } else {
-            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
-          }
-        } catch {
-          // Album grouping can fail on some Android versions due to scoped storage, but asset is already created in MediaStore!
-        }
-
-        return {
-          success: true,
-          finalUri: asset.uri || destinationPath,
-          savedToGallery: true,
-          message: 'Saved to Gallery.',
-        };
+      if (perm.status === 'denied') {
+        permExplicitlyDenied = true;
       }
     } catch {
-      // Permission denied or limited environment (e.g. Expo Go)
+      // In Expo Go, getPermissionsAsync throws PermissionsException due to sandbox policy.
+      // This is an environment restriction rather than an explicit user denial.
+      permExplicitlyDenied = false;
+    }
+
+    if (!permExplicitlyDenied) {
+      try {
+        const asset = await MediaLibrary.createAssetAsync(destinationPath);
+        if (asset) {
+          try {
+            const album = await MediaLibrary.getAlbumAsync('ClipSave');
+            if (album) {
+              await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+            } else {
+              await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
+            }
+          } catch {
+            // Album grouping can fail on some Android versions due to scoped storage, but asset is already created in MediaStore!
+          }
+
+          return {
+            success: true,
+            finalUri: asset.uri || destinationPath,
+            savedToGallery: true,
+            message: 'Saved to Gallery.',
+          };
+        }
+      } catch {
+        // MediaStore insertion restricted by environment (e.g. Expo Go)
+      }
     }
 
     return {
