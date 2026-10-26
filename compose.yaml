@@ -1,0 +1,32 @@
+services:
+  clipsave-resolver:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: clipsave-resolver
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - DEBUG=false
+      - RATE_LIMIT_PER_MINUTE=60
+      - REQUEST_TIMEOUT_SECONDS=15
+      - MAX_CONCURRENT_EXTRACTIONS=5
+      - ENABLE_MOCK_EXTRACTOR=false
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 512M
