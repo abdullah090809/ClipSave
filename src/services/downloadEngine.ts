@@ -125,10 +125,13 @@ async function executeDownloadStream(
       });
     };
 
+    const currentJob = getQueue().find((j) => j.id === jobId);
+    const headers = currentJob?.media.httpHeaders;
+
     const downloadResumable = FileSystem.createDownloadResumable(
       mediaUrl,
       tempPath,
-      {},
+      headers ? { headers } : {},
       callback
     );
 

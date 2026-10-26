@@ -18,6 +18,8 @@ export interface ResolvedMedia {
   durationSeconds?: number | undefined;
   thumbnailUrl?: string | undefined;
   mediaUrl: string;
+  directMediaUrl?: string | undefined;
+  httpHeaders?: Record<string, string> | undefined;
   estimatedSizeBytes?: number | undefined;
   format: string;
   expiresAt?: string | undefined; // ISO date string

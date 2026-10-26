@@ -1,11 +1,35 @@
 import asyncio
 import concurrent.futures
+import time
+import uuid
 from typing import Optional, Dict, Any
 import yt_dlp
 
 from ..config import settings
 from ..models import ResolvedMediaResponse
 from ..security.logging import log_safe_info, log_safe_error
+
+# In-memory stream session registry for proxying protected streams
+_stream_sessions: Dict[str, Dict[str, Any]] = {}
+
+
+def register_stream_session(stream_id: str, media_url: str, headers: Dict[str, str], title: str) -> None:
+    now = time.time()
+    # Expire sessions older than 2 hours
+    expired = [k for k, v in _stream_sessions.items() if now - v.get("created_at", 0) > 7200]
+    for k in expired:
+        _stream_sessions.pop(k, None)
+
+    _stream_sessions[stream_id] = {
+        "media_url": media_url,
+        "headers": headers,
+        "title": title,
+        "created_at": now,
+    }
+
+
+def get_stream_session(stream_id: str) -> Optional[Dict[str, Any]]:
+    return _stream_sessions.get(stream_id)
 
 # Bounded worker semaphore
 _concurrency_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_EXTRACTIONS)
@@ -37,10 +61,14 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        return ydl.extract_info(url, download=False)
+        info = ydl.extract_info(url, download=False)
+        if info:
+            cookie_dict = {c.name: c.value for c in ydl.cookiejar}
+            info["_extracted_cookies"] = cookie_dict
+        return info
 
 
-async def extract_media_metadata(url: str) -> ResolvedMediaResponse:
+async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> ResolvedMediaResponse:
     """
     Asynchronously extracts media metadata with bounded concurrency and strict timeout.
     """
@@ -122,6 +150,7 @@ async def extract_media_metadata(url: str) -> ResolvedMediaResponse:
     media_url: Optional[str] = None
     filesize: Optional[int] = None
     ext: str = info.get("ext") or "mp4"
+    selected_headers: Dict[str, str] = {}
 
     formats = info.get("formats") or []
     # Find best mp4 video stream
@@ -131,10 +160,12 @@ async def extract_media_metadata(url: str) -> ResolvedMediaResponse:
             filesize = f.get("filesize") or f.get("filesize_approx")
             if f.get("ext"):
                 ext = f.get("ext")
+            selected_headers = f.get("http_headers", {}).copy()
             break
 
     if not media_url:
         media_url = info.get("url")
+        selected_headers = info.get("http_headers", {}).copy()
 
     if not media_url:
         raise ExtractionError(
@@ -142,6 +173,26 @@ async def extract_media_metadata(url: str) -> ResolvedMediaResponse:
             message="Direct media stream URL could not be extracted.",
             status_code=422,
         )
+
+    # Attach extracted session cookies to headers to satisfy CDN hotlink validation
+    cookies = info.get("_extracted_cookies", {})
+    if cookies:
+        cookie_str = "; ".join([f"{k}={v}" for k, v in cookies.items()])
+        selected_headers["Cookie"] = cookie_str
+
+    # Register stream session for proxying
+    stream_id = f"stream_{uuid.uuid4().hex[:12]}"
+    register_stream_session(
+        stream_id=stream_id,
+        media_url=media_url,
+        headers=selected_headers,
+        title=info.get("title") or "video",
+    )
+
+    # If base_url is supplied, use the streaming proxy to bypass mobile TLS/cookie blocks
+    client_media_url = (
+        f"{base_url.rstrip('/')}/v1/stream/{stream_id}" if base_url else media_url
+    )
 
     return ResolvedMediaResponse(
         id=str(info.get("id") or "vid"),
@@ -151,7 +202,9 @@ async def extract_media_metadata(url: str) -> ResolvedMediaResponse:
         authorUsername=info.get("uploader_id"),
         durationSeconds=float(info.get("duration") or 0) if info.get("duration") else None,
         thumbnailUrl=info.get("thumbnail"),
-        mediaUrl=media_url,
+        mediaUrl=client_media_url,
+        directMediaUrl=media_url,
+        httpHeaders=selected_headers,
         estimatedSizeBytes=filesize,
         format=ext,
         expiresAt=None,

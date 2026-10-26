@@ -67,6 +67,8 @@ export async function resolveTikTokUrl(url: string): Promise<ResolvedMedia> {
       durationSeconds: data.durationSeconds,
       thumbnailUrl: data.thumbnailUrl,
       mediaUrl: data.mediaUrl,
+      directMediaUrl: data.directMediaUrl,
+      httpHeaders: data.httpHeaders,
       estimatedSizeBytes: data.estimatedSizeBytes,
       format: data.format || 'mp4',
       expiresAt: data.expiresAt,

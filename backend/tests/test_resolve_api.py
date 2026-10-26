@@ -36,6 +36,15 @@ async def test_healthz_and_readyz():
 
 
 @pytest.mark.asyncio
+async def test_stream_nonexistent_session():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/v1/stream/nonexistent_session_id_404")
+        assert resp.status_code == 404
+        assert "Stream session expired" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_resolve_valid_mock_url():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

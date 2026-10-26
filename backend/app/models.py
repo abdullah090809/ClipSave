@@ -17,6 +17,8 @@ class ResolvedMediaResponse(BaseModel):
     durationSeconds: Optional[float] = None
     thumbnailUrl: Optional[str] = None
     mediaUrl: str
+    directMediaUrl: Optional[str] = None
+    httpHeaders: Optional[dict[str, str]] = None
     estimatedSizeBytes: Optional[int] = None
     format: str = "mp4"
     expiresAt: Optional[str] = None
