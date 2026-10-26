@@ -19,10 +19,11 @@ export async function cleanOrphanedTempFiles(): Promise<number> {
     for (const f of files) {
       const fullPath = `${DOWNLOADS_TEMP_DIR}${f}`;
       const info = await FileSystem.getInfoAsync(fullPath);
-      // Remove partial files older than 2 hours
-      if (info.exists && info.modificationTime) {
-        const ageHours = (Date.now() - info.modificationTime * 1000) / (1000 * 3600);
-        if (ageHours > 2 || f.endsWith('.tmp')) {
+      // Clean partial or temporary files older than 15 minutes to prevent race conditions with active downloads
+      if (info.exists) {
+        const modTimeMs = (info.modificationTime || 0) * 1000;
+        const ageMinutes = (Date.now() - modTimeMs) / (1000 * 60);
+        if (ageMinutes > 15 || !info.modificationTime) {
           await FileSystem.deleteAsync(fullPath, { idempotent: true });
           cleaned++;
         }
