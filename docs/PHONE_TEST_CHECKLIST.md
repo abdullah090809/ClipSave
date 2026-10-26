@@ -33,8 +33,9 @@ Open two PowerShell windows in `D:\Skills\Tiktok Downloader`:
 
 ### Terminal 1: Start the Python Backend Resolver
 ```powershell
-.\backend\.venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
+.\backend\.venv\Scripts\python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8080
 ```
+> **Important:** `--app-dir backend` instructs Uvicorn to import from `backend/app`, preventing Python from accidentally importing the frontend's `app/` folder located in the repository root.
 - You will see: `Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)`
 - *Windows Firewall prompt:* If Windows displays a "Windows Defender Firewall has blocked some features" dialog, click **Allow access** for Private networks.
 

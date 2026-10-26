@@ -10,8 +10,11 @@ function RootNavigation() {
   const { isDark, colors } = useTheme();
 
   useEffect(() => {
-    loadQueueFromStorage();
-    cleanOrphanedTempFiles();
+    async function initialize() {
+      await loadQueueFromStorage();
+      await cleanOrphanedTempFiles();
+    }
+    initialize();
   }, []);
 
   return (

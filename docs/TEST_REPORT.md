@@ -11,9 +11,9 @@
 | Suite | Runner | Total Tests | Passed | Failed | Skipped | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Mobile TypeScript Strict Check** | `tsc --noEmit` | Entire project | Clean (0 errors) | 0 | 0 | **PASSED** |
-| **Mobile Unit Test Suite** | Jest 30.5.2 | 49 | 49 | 0 | 0 | **PASSED** |
+| **Mobile Unit Test Suite** | Jest 30.5.2 | 53 | 53 | 0 | 0 | **PASSED** |
 | **Backend Integration Suite** | pytest 9.1.1 | 22 | 22 | 0 | 0 | **PASSED** |
-| **Total Automated Tests** | Jest & Pytest | **71** | **71** | **0** | **0** | **PASSED (100%)** |
+| **Total Automated Tests** | Jest & Pytest | **75** | **75** | **0** | **0** | **PASSED (100%)** |
 | **Expo Configuration Check** | `npx expo config` | Config validation | Clean | 0 | 0 | **PASSED** |
 | **Backend Benchmark / Load** | `load_test.py` | 50 requests | 50 | 0 | 0 | **VERIFIED** |
 | **Android Physical/Emulator E2E**| Phone Test Runbook | Scenarios A–M | 0 | 0 | 13 | **NOT RUN** (Reason below) |
@@ -77,13 +77,17 @@ Result: 9 suites passed, 49 tests passed
   - `UT-DL-05`: retryDownload increments retry count and restarts stream
   - `UT-DL-06`: server HTTP error sets state to FAILED with retryable flag
   - `UT-DL-07`: storage save failure marks job FAILED without retry
-- `src/services/mediaManager.test.ts` (6 tests) -> **PASS**
+- `src/services/mediaManager.test.ts` (10 tests) -> **PASS**
   - `UT-MM-01`: ensureTempDirectory creates directory when it does not exist
   - `UT-MM-02`: cleanOrphanedTempFiles deletes files older than threshold
   - `UT-MM-03`: saveCompletedMedia rejects corrupted or zero-byte file
   - `UT-MM-04`: saveCompletedMedia saves to gallery when permissions granted
   - `UT-MM-05`: saveCompletedMedia falls back to document storage when gallery denied
   - `UT-MM-06`: shareSavedMedia invokes native share dialog
+  - `UT-MM-REG-01`: does not delete active downloading file even if older than 15 minutes
+  - `UT-MM-REG-02`: does not delete paused or resumable download files even if older than 15 minutes
+  - `UT-MM-REG-03`: cleans genuinely unreferenced stale file
+  - `UT-MM-REG-04`: startup reconciliation reconciles active jobs and cleans only unreferenced files
 
 ### 2.2 Backend Test Suite (Pytest)
 Command: `.\backend\.venv\Scripts\pytest -v backend\tests`  

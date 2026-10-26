@@ -5,13 +5,29 @@ import {
   shareSavedMedia,
   DOWNLOADS_TEMP_DIR,
 } from './mediaManager';
+import {
+  addJobToQueue,
+  clearTerminalJobs,
+  loadQueueFromStorage,
+  getQueue,
+} from '../storage/queueStore';
+import { DownloadJob } from '../types';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 describe('mediaManager', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
+    await AsyncStorage.clear();
+    clearTerminalJobs();
+    // Clear in-memory queue jobs
+    const currentQueue = getQueue();
+    currentQueue.forEach((j) => {
+      j.state = 'CANCELLED';
+    });
+    clearTerminalJobs();
   });
 
   test('UT-MM-01: ensureTempDirectory creates directory when it does not exist', async () => {
@@ -33,14 +49,27 @@ describe('mediaManager', () => {
     const oldTimestampSeconds = (Date.now() - 3600 * 1000) / 1000; // 1 hour ago
     const newTimestampSeconds = (Date.now() - 60 * 1000) / 1000; // 1 minute ago
 
-    (FileSystem.getInfoAsync as jest.Mock)
-      .mockResolvedValueOnce({ exists: true, modificationTime: oldTimestampSeconds })
-      .mockResolvedValueOnce({ exists: true, modificationTime: newTimestampSeconds });
+    (FileSystem.getInfoAsync as jest.Mock).mockImplementation(async (uri: string) => {
+      if (uri === DOWNLOADS_TEMP_DIR) {
+        return { exists: true, isDirectory: true };
+      }
+      if (uri.includes('old_stream.tmp')) {
+        return { exists: true, modificationTime: oldTimestampSeconds };
+      }
+      if (uri.includes('recent_stream.tmp')) {
+        return { exists: true, modificationTime: newTimestampSeconds };
+      }
+      return { exists: true, modificationTime: oldTimestampSeconds };
+    });
 
     const cleanedCount = await cleanOrphanedTempFiles();
 
     expect(cleanedCount).toBe(1);
     expect(FileSystem.deleteAsync).toHaveBeenCalledTimes(1);
+    expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
+      `${DOWNLOADS_TEMP_DIR}old_stream.tmp`,
+      { idempotent: true }
+    );
   });
 
   test('UT-MM-03: saveCompletedMedia rejects corrupted or zero-byte file', async () => {
@@ -92,6 +121,187 @@ describe('mediaManager', () => {
     expect(Sharing.shareAsync).toHaveBeenCalledWith(
       'file:///documents/video.mp4',
       expect.objectContaining({ mimeType: 'video/mp4' })
+    );
+  });
+
+  test('UT-MM-REG-01: does NOT delete active downloading file even if older than 15 minutes', async () => {
+    const activeJob: DownloadJob = {
+      id: 'job_active_123',
+      sourceUrl: 'https://tiktok.com/@user/video/1',
+      media: {
+        id: 'vid1',
+        sourceUrl: 'https://tiktok.com/@user/video/1',
+        title: 'Long Active Download',
+        author: 'Creator',
+        mediaUrl: 'https://cdn.example.com/stream.mp4',
+        format: 'mp4',
+        isCleanSourceVerified: true,
+      },
+      state: 'DOWNLOADING',
+      bytesDownloaded: 500000,
+      retryCount: 0,
+      supportsResume: true,
+      statusMessage: 'Downloading...',
+      tempFilePath: `${DOWNLOADS_TEMP_DIR}active_old.tmp`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    addJobToQueue(activeJob);
+
+    (FileSystem.readDirectoryAsync as jest.Mock).mockResolvedValueOnce(['active_old.tmp']);
+    // File is 25 minutes old
+    const modTime = (Date.now() - 25 * 60 * 1000) / 1000;
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      modificationTime: modTime,
+    });
+
+    const cleaned = await cleanOrphanedTempFiles();
+    expect(cleaned).toBe(0);
+    expect(FileSystem.deleteAsync).not.toHaveBeenCalled();
+  });
+
+  test('UT-MM-REG-02: does NOT delete paused or resumable download files even if older than 15 minutes', async () => {
+    const pausedJob: DownloadJob = {
+      id: 'job_paused_456',
+      sourceUrl: 'https://tiktok.com/@user/video/2',
+      media: {
+        id: 'vid2',
+        sourceUrl: 'https://tiktok.com/@user/video/2',
+        title: 'Paused Download',
+        author: 'Creator',
+        mediaUrl: 'https://cdn.example.com/stream2.mp4',
+        format: 'mp4',
+        isCleanSourceVerified: true,
+      },
+      state: 'PAUSED',
+      bytesDownloaded: 2000000,
+      retryCount: 0,
+      supportsResume: true,
+      statusMessage: 'Paused by user',
+      tempFilePath: `${DOWNLOADS_TEMP_DIR}paused_old.tmp`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const retryableJob: DownloadJob = {
+      id: 'job_retryable_789',
+      sourceUrl: 'https://tiktok.com/@user/video/3',
+      media: {
+        id: 'vid3',
+        sourceUrl: 'https://tiktok.com/@user/video/3',
+        title: 'Recoverable Interrupted Download',
+        author: 'Creator',
+        mediaUrl: 'https://cdn.example.com/stream3.mp4',
+        format: 'mp4',
+        isCleanSourceVerified: true,
+      },
+      state: 'FAILED',
+      isRetryable: true,
+      bytesDownloaded: 1500000,
+      retryCount: 1,
+      supportsResume: true,
+      statusMessage: 'Interrupted',
+      tempFilePath: `${DOWNLOADS_TEMP_DIR}resumable_old.tmp`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    addJobToQueue(pausedJob);
+    addJobToQueue(retryableJob);
+
+    (FileSystem.readDirectoryAsync as jest.Mock).mockResolvedValueOnce([
+      'paused_old.tmp',
+      'resumable_old.tmp',
+    ]);
+
+    // Both files are 45 minutes old
+    const modTime = (Date.now() - 45 * 60 * 1000) / 1000;
+    (FileSystem.getInfoAsync as jest.Mock)
+      .mockResolvedValueOnce({ exists: true, modificationTime: modTime })
+      .mockResolvedValueOnce({ exists: true, modificationTime: modTime });
+
+    const cleaned = await cleanOrphanedTempFiles();
+    expect(cleaned).toBe(0);
+    expect(FileSystem.deleteAsync).not.toHaveBeenCalled();
+  });
+
+  test('UT-MM-REG-03: cleans genuinely unreferenced stale file', async () => {
+    (FileSystem.readDirectoryAsync as jest.Mock).mockResolvedValueOnce([
+      'unreferenced_garbage.tmp',
+    ]);
+
+    // 30 minutes old, not referenced in queue
+    const modTime = (Date.now() - 30 * 60 * 1000) / 1000;
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      modificationTime: modTime,
+    });
+
+    const cleaned = await cleanOrphanedTempFiles();
+    expect(cleaned).toBe(1);
+    expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
+      `${DOWNLOADS_TEMP_DIR}unreferenced_garbage.tmp`,
+      { idempotent: true }
+    );
+  });
+
+  test('UT-MM-REG-04: startup reconciliation reconciles active jobs and cleans only unreferenced files', async () => {
+    // Setup persisted queue state in AsyncStorage before startup
+    const interruptedJob: DownloadJob = {
+      id: 'job_startup_interrupted',
+      sourceUrl: 'https://tiktok.com/@user/video/4',
+      media: {
+        id: 'vid4',
+        sourceUrl: 'https://tiktok.com/@user/video/4',
+        title: 'Interrupted Download',
+        author: 'Creator',
+        mediaUrl: 'https://cdn.example.com/stream4.mp4',
+        format: 'mp4',
+        isCleanSourceVerified: true,
+      },
+      state: 'DOWNLOADING', // Interrupted by unexpected crash
+      bytesDownloaded: 1200000,
+      retryCount: 0,
+      supportsResume: true,
+      statusMessage: 'Downloading...',
+      tempFilePath: `${DOWNLOADS_TEMP_DIR}interrupted.tmp`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await AsyncStorage.setItem('@clipsave_queue_v1', JSON.stringify([interruptedJob]));
+
+    // Reconcile on startup
+    const loadedQueue = await loadQueueFromStorage();
+    const reconciledJob = loadedQueue.find((j) => j.id === 'job_startup_interrupted');
+    expect(reconciledJob?.state).toBe('FAILED');
+    expect(reconciledJob?.isRetryable).toBe(true);
+    expect(reconciledJob?.statusMessage).toContain('Interrupted');
+
+    // On disk: the interrupted job's temp file + an unreferenced stray file
+    (FileSystem.readDirectoryAsync as jest.Mock).mockResolvedValueOnce([
+      'interrupted.tmp',
+      'stray_abandoned.tmp',
+    ]);
+
+    const oldModTime = (Date.now() - 60 * 60 * 1000) / 1000;
+    (FileSystem.getInfoAsync as jest.Mock)
+      .mockResolvedValueOnce({ exists: true, modificationTime: oldModTime })
+      .mockResolvedValueOnce({ exists: true, modificationTime: oldModTime });
+
+    // Cleanup runs right after startup reconciliation
+    const cleaned = await cleanOrphanedTempFiles();
+
+    expect(cleaned).toBe(1);
+    // Only stray_abandoned.tmp was deleted
+    expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
+      `${DOWNLOADS_TEMP_DIR}stray_abandoned.tmp`,
+      { idempotent: true }
+    );
+    expect(FileSystem.deleteAsync).not.toHaveBeenCalledWith(
+      `${DOWNLOADS_TEMP_DIR}interrupted.tmp`,
+      expect.anything()
     );
   });
 });
