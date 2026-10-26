@@ -138,3 +138,53 @@ An exhaustive code-level audit was conducted across all screens, layouts, shared
    - Run full Jest test suite (`npm test`).
    - Run backend Pytest suite (`pytest backend/tests`).
    - Run Android Metro bundle export (`npx expo export --platform android`).
+
+
+---
+
+## 4. Structural Redesign V2 — Architectural Layout Overhaul
+
+The previous iteration refined tokens and colors, but retained the legacy "stacked boxed cards" arrangement. Structural V2 completely re-architects each screen's layout, composition, grouping, and interaction patterns:
+
+### Home Screen (`app/(tabs)/index.tsx`)
+- **Old Structure:** Top logo circle taking 150dp, disclaimer box, input card, 3 pill boxes, instructions card. Stacked vertically with duplicate borders.
+- **New Structure:**
+  1. **Compact Top Bar:** App identity + active status indicator / Mock mode chip + quick navigation icon to settings.
+  2. **Unified Action Console (Floating Hero Deck):** Not a generic form field inside a card. An integrated input console featuring:
+     - Clear URL entry with embedded link icon and clear trigger.
+     - **Intelligent Clipboard Action:** One-tap quick paste pill directly integrated with the input.
+     - **Dominant Primary Action ("Resolve & Preview"):** A full-width, thumb-optimized 54dp primary CTA directly underneath the input.
+  3. **Live Status / Quick Access Shelf:** Compact contextual section showing active downloads or quick-start guidance with 0 wasted space.
+  4. **Subtle Transparency Footer:** A clean, minimal footer link/chip instead of an oversized blocking card.
+
+### Queue Screen (`app/(tabs)/queue.tsx`)
+- **Old Structure:** Uniform, identical 180dp cards stacked vertically for all states, requiring heavy scrolling and offering no visual distinction.
+- **New Structure:**
+  1. **Status Filter Segmented Header:** Filter pills at the top (`All`, `Active`, `Completed`, `Failed`) with live counts.
+  2. **Active Download Hero Section:** Prominent progress card with animated progress, live streaming throughput/bytes (`14.2 MB / 19.1 MB • 74%`), and dedicated circular Pause/Cancel controls.
+  3. **Completed Downloads Section:** Compact, information-dense list rows with checkmark icon, video title, author, file size, and direct 1-tap "Send to Gallery / Share" action.
+  4. **Failed Downloads Section:** Clear retry banner with immediate 1-tap "Retry" action.
+
+### History Screen (`app/(tabs)/history.tsx`)
+- **Old Structure:** Uniform 140dp cards with 76x76 square images and 2 side-by-side buttons below each item.
+- **New Structure:**
+  1. **Interactive Search & Storage Bar:** Real-time local search bar (`Search saved videos...`) + total storage metrics (`5 videos • 84.2 MB total`).
+  2. **Cinematic 16:9 Media List Rows:** Modern media library layout with 16:9 thumbnail, duration overlay badge, title, author, and relative date.
+  3. **Streamlined Contextual Actions:** Primary 1-tap Share/Play action paired with a clean more-options/trash trigger, preventing screen crowding.
+  4. **Separated Deletion Flow:** Explicit, unambiguous separation between record clearing and physical file deletion.
+
+### Settings Screen (`app/(tabs)/settings.tsx`)
+- **Old Structure:** Stack of 5 bordered rectangular cards with large margins and nested inputs.
+- **New Structure:**
+  1. **Material 3 / OneUI Grouped Preferences:** Native preference sections with subtle dividers, clear section headings, and aligned controls.
+  2. **Theme Selector:** Polished connected SegmentedControl (System / Light / Dark).
+  3. **Preference Rows:** Leading tonal icon + title + descriptive subtitle + trailing Switch or Chevron.
+  4. **Storage Breakdown Card:** Clear visual metrics on cache vs saved video media, with one-tap clear actions.
+
+### Preview Modal (`app/preview.tsx`)
+- **Old Structure:** Centered card with thumbnail and raw 2-column borders.
+- **New Structure:**
+  1. **Cinematic Bottom Sheet / Dialog:** Drag handle indicator + close button.
+  2. **16:9 Video Canvas:** Full-width hero media with duration pill and verified clean badge.
+  3. **3-Column Metric Bar:** High-density chips for File Size, Format, and Media Type.
+  4. **Floating Action Bar:** Fixed thumb-zone dual action bar (Cancel + Start Download).

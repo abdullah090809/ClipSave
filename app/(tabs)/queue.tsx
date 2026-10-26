@@ -5,15 +5,15 @@ import {
   FlatList,
   StyleSheet,
   Alert,
+  Pressable,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeContext';
-import { spacing, borderRadius } from '../../src/theme/spacing';
+import { spacing, borderRadius, elevation } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { Card } from '../../src/components/Card';
-import { Badge } from '../../src/components/Badge';
 import { Button } from '../../src/components/Button';
 import { ProgressBar } from '../../src/components/ProgressBar';
 import { EmptyState } from '../../src/components/EmptyState';
@@ -32,10 +32,13 @@ import { shareSavedMedia } from '../../src/services/mediaManager';
 import { formatBytes } from '../../src/utils/formatters';
 import { DownloadJob } from '../../src/types';
 
+type QueueFilter = 'ALL' | 'ACTIVE' | 'COMPLETED' | 'FAILED';
+
 export default function QueueScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
+  const [activeFilter, setActiveFilter] = useState<QueueFilter>('ALL');
 
   useEffect(() => {
     return subscribeQueue((updated) => setJobs(updated));
@@ -56,189 +59,238 @@ export default function QueueScreen() {
     );
   };
 
+  const activeCount = jobs.filter(
+    (j) => j.state === 'DOWNLOADING' || j.state === 'FINALIZING' || j.state === 'PAUSED' || j.state === 'QUEUED'
+  ).length;
+  const completedCount = jobs.filter((j) => j.state === 'COMPLETED').length;
+  const failedCount = jobs.filter((j) => j.state === 'FAILED' || j.state === 'CANCELLED').length;
+
+  const filteredJobs = jobs.filter((j) => {
+    switch (activeFilter) {
+      case 'ACTIVE':
+        return j.state === 'DOWNLOADING' || j.state === 'FINALIZING' || j.state === 'PAUSED' || j.state === 'QUEUED';
+      case 'COMPLETED':
+        return j.state === 'COMPLETED';
+      case 'FAILED':
+        return j.state === 'FAILED' || j.state === 'CANCELLED';
+      case 'ALL':
+      default:
+        return true;
+    }
+  });
+
   const hasTerminalJobs = jobs.some(
     (j) => j.state === 'COMPLETED' || j.state === 'FAILED' || j.state === 'CANCELLED'
   );
 
-  const renderJobItem = ({ item }: { item: DownloadJob }) => {
-    const isDownloading = item.state === 'DOWNLOADING';
+  const renderActiveJob = (item: DownloadJob) => {
     const isPaused = item.state === 'PAUSED';
-    const isCompleted = item.state === 'COMPLETED';
-    const isFailed = item.state === 'FAILED';
-    const isFinalizing = item.state === 'FINALIZING';
-
     const progressFraction =
       item.totalBytes && item.totalBytes > 0
         ? Math.min(item.bytesDownloaded / item.totalBytes, 1)
         : undefined;
 
     return (
-      <Card
-        variant={isDownloading ? 'elevated' : 'outlined'}
-        style={styles.jobCard}
+      <View
+        key={item.id}
+        style={[
+          styles.activeStreamCard,
+          {
+            backgroundColor: colors.surfaceContainerLowest || colors.surface,
+            borderColor: isPaused ? colors.warning : colors.primary,
+          },
+          Platform.OS === 'android' ? elevation.level2 : {},
+        ]}
       >
-        {/* Header Row: Title and Status Badge */}
-        <View style={styles.cardHeader}>
-          <View style={styles.titleArea}>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary }]} numberOfLines={2}>
+        <View style={styles.activeCardHeader}>
+          <View style={styles.activeTitleCol}>
+            <View style={styles.statusPillRow}>
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: isPaused ? colors.warning : colors.primary },
+                ]}
+              />
+              <Text
+                style={[
+                  typography.labelMedium,
+                  { color: isPaused ? colors.warning : colors.primary },
+                ]}
+              >
+                {isPaused ? 'PAUSED' : item.state === 'FINALIZING' ? 'FINALIZING' : 'DOWNLOADING'}
+              </Text>
+            </View>
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: 4 }]} numberOfLines={2}>
               {item.media.title || 'TikTok Video'}
             </Text>
-            <View style={styles.creatorRow}>
-              <Ionicons name="person-outline" size={13} color={colors.textMuted} />
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginLeft: 4 }]} numberOfLines={1}>
-                {item.media.author || 'Creator'}
-              </Text>
-            </View>
-          </View>
-          <Badge label={item.state} state={item.state} />
-        </View>
-
-        {/* Active Progress Section (Downloading / Paused / Finalizing) */}
-        {(isDownloading || isPaused || isFinalizing) && (
-          <View style={styles.progressSection}>
-            <ProgressBar
-              progress={progressFraction}
-              showPercentage={item.totalBytes !== undefined}
-            />
-            <View style={styles.bytesRow}>
-              <Text style={[typography.labelMedium, { color: colors.textSecondary }]}>
-                {formatBytes(item.bytesDownloaded)}
-                {item.totalBytes ? ` / ${formatBytes(item.totalBytes)}` : ' (Streaming)'}
-              </Text>
-              <Text style={[typography.bodySmall, { color: colors.primary }]}>
-                {item.statusMessage}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Completed State Information */}
-        {isCompleted && (
-          <View
-            style={[
-              styles.completedInfoBox,
-              {
-                backgroundColor: colors.successLight,
-                borderColor: colors.success,
-              },
-            ]}
-          >
-            <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-            <View style={{ flex: 1, marginLeft: spacing.xs }}>
-              <Text style={[typography.labelMedium, { color: colors.success }]}>
-                {item.statusMessage || 'Download Complete'}
-              </Text>
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
-                {formatBytes(item.bytesDownloaded)} • Saved to device
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Error Explanation if Failed */}
-        {isFailed && item.errorMessage && (
-          <View
-            style={[
-              styles.errorBox,
-              {
-                backgroundColor: colors.dangerLight,
-                borderColor: colors.danger,
-              },
-            ]}
-            accessible={true}
-            accessibilityRole="alert"
-          >
-            <Ionicons name="alert-circle" size={18} color={colors.danger} />
-            <Text style={[typography.bodySmall, { color: colors.danger, marginLeft: spacing.xs, flex: 1 }]}>
-              {item.errorMessage}
+            <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+              {item.media.author || 'Creator'}
             </Text>
           </View>
-        )}
 
-        {/* Action Controls */}
-        <View style={styles.cardActions}>
-          {isDownloading && (
-            <>
-              <Button
-                title="Pause"
-                icon={<Ionicons name="pause" size={16} color={colors.textPrimary} />}
-                onPress={() => pauseDownload(item.id)}
-                variant="secondary"
-                style={styles.actionBtn}
-                accessibilityLabel="Pause downloading video"
-              />
-              <Button
-                title="Cancel"
-                icon={<Ionicons name="close" size={16} color={colors.danger} />}
-                onPress={() => handleCancel(item)}
-                variant="ghost"
-                textStyle={{ color: colors.danger }}
-                style={styles.actionBtn}
-                accessibilityLabel="Cancel downloading video"
-              />
-            </>
-          )}
-
-          {isPaused && (
-            <>
-              <Button
-                title="Resume"
-                icon={<Ionicons name="play" size={16} color="#FFFFFF" />}
+          {/* Quick Circular Action Buttons */}
+          <View style={styles.activeActionControls}>
+            {isPaused ? (
+              <Pressable
                 onPress={() => resumeDownload(item.id)}
-                variant="primary"
-                style={styles.actionBtn}
-                accessibilityLabel="Resume paused download"
-              />
-              <Button
-                title="Cancel"
-                icon={<Ionicons name="close" size={16} color={colors.danger} />}
-                onPress={() => handleCancel(item)}
-                variant="ghost"
-                textStyle={{ color: colors.danger }}
-                style={styles.actionBtn}
-                accessibilityLabel="Cancel paused download"
-              />
-            </>
-          )}
+                android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+                style={[styles.circleActionBtn, { backgroundColor: colors.primary }]}
+                accessibilityRole="button"
+                accessibilityLabel="Resume download"
+              >
+                <Ionicons name="play" size={18} color="#FFFFFF" />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => pauseDownload(item.id)}
+                android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+                style={[
+                  styles.circleActionBtn,
+                  { backgroundColor: colors.surfaceContainerHigh || colors.surfaceElevated },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Pause download"
+              >
+                <Ionicons name="pause" size={18} color={colors.textPrimary} />
+              </Pressable>
+            )}
 
-          {isFailed && (
-            <Button
-              title="Retry Download"
-              icon={<Ionicons name="refresh" size={16} color="#FFFFFF" />}
-              onPress={() => retryDownload(item.id)}
-              variant="primary"
-              style={styles.fullActionBtn}
-              accessibilityLabel="Retry failed download"
-            />
-          )}
-
-          {isCompleted && item.finalFileUri && (
-            <View style={{ width: '100%', gap: spacing.xs }}>
-              {item.statusMessage === 'Saved to App Storage' && (
-                <Text style={[typography.bodySmall, { color: colors.textMuted, textAlign: 'center', marginBottom: 2 }]}>
-                  In Expo Go, tap below to send this video to your Samsung Gallery or Photos:
-                </Text>
-              )}
-              <Button
-                title="Send to Gallery / Share"
-                icon={<Ionicons name="share-social-outline" size={18} color="#FFFFFF" />}
-                onPress={() => shareSavedMedia(item.finalFileUri!)}
-                variant="primary"
-                style={styles.fullActionBtn}
-                accessibilityLabel="Send downloaded video to gallery or share"
-              />
-            </View>
-          )}
+            <Pressable
+              onPress={() => handleCancel(item)}
+              android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+              style={[
+                styles.circleActionBtn,
+                { backgroundColor: colors.dangerLight },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel download"
+            >
+              <Ionicons name="close" size={18} color={colors.danger} />
+            </Pressable>
+          </View>
         </View>
-      </Card>
+
+        {/* Live Progress Bar */}
+        <View style={styles.activeProgressBox}>
+          <ProgressBar
+            progress={progressFraction}
+            showPercentage={item.totalBytes !== undefined}
+          />
+          <View style={styles.activeBytesRow}>
+            <Text style={[typography.labelMedium, { color: colors.textSecondary }]}>
+              {formatBytes(item.bytesDownloaded)}
+              {item.totalBytes ? ` / ${formatBytes(item.totalBytes)}` : ' (Streaming)'}
+            </Text>
+            <Text style={[typography.labelMedium, { color: isPaused ? colors.warning : colors.primary }]}>
+              {item.statusMessage}
+            </Text>
+          </View>
+        </View>
+      </View>
     );
+  };
+
+  const renderCompletedJob = (item: DownloadJob) => {
+    return (
+      <View
+        key={item.id}
+        style={[
+          styles.completedRow,
+          {
+            backgroundColor: colors.surfaceContainerLowest || colors.surface,
+            borderColor: colors.outlineVariant || colors.surfaceBorder,
+          },
+        ]}
+      >
+        <View style={[styles.completedIconWrapper, { backgroundColor: colors.successLight }]}>
+          <Ionicons name="checkmark" size={20} color={colors.success} />
+        </View>
+
+        <View style={styles.completedTextCol}>
+          <Text style={[typography.titleSmall, { color: colors.textPrimary }]} numberOfLines={1}>
+            {item.media.title || 'TikTok Video'}
+          </Text>
+          <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
+            {formatBytes(item.bytesDownloaded)} • {item.media.author || 'Saved to Storage'}
+          </Text>
+        </View>
+
+        {item.finalFileUri && (
+          <Pressable
+            onPress={() => shareSavedMedia(item.finalFileUri!)}
+            android_ripple={{ color: colors.ripple, borderless: false }}
+            style={[
+              styles.sharePillBtn,
+              { backgroundColor: colors.primaryContainer || colors.primaryLight },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Share or send ${item.media.title} to gallery`}
+          >
+            <Ionicons name="share-social-outline" size={15} color={colors.primary} />
+            <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>
+              Share
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  };
+
+  const renderFailedJob = (item: DownloadJob) => {
+    return (
+      <View
+        key={item.id}
+        style={[
+          styles.failedRow,
+          {
+            backgroundColor: colors.dangerLight,
+            borderColor: colors.danger,
+          },
+        ]}
+      >
+        <Ionicons name="alert-circle" size={22} color={colors.danger} style={{ marginTop: 2 }} />
+        <View style={styles.failedTextCol}>
+          <Text style={[typography.titleSmall, { color: colors.danger }]} numberOfLines={1}>
+            {item.media.title || 'Download Failed'}
+          </Text>
+          <Text style={[typography.bodySmall, { color: colors.danger, marginTop: 2 }]}>
+            {item.errorMessage || 'Server or network error.'}
+          </Text>
+        </View>
+
+        <Button
+          title="Retry"
+          icon={<Ionicons name="refresh" size={14} color="#FFFFFF" />}
+          onPress={() => retryDownload(item.id)}
+          variant="danger"
+          size="sm"
+          style={styles.retryBtn}
+          accessibilityLabel={`Retry download for ${item.media.title}`}
+        />
+      </View>
+    );
+  };
+
+  const renderItem = ({ item }: { item: DownloadJob }) => {
+    if (
+      item.state === 'DOWNLOADING' ||
+      item.state === 'PAUSED' ||
+      item.state === 'FINALIZING' ||
+      item.state === 'QUEUED'
+    ) {
+      return renderActiveJob(item);
+    }
+    if (item.state === 'COMPLETED') {
+      return renderCompletedJob(item);
+    }
+    return renderFailedJob(item);
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <ScreenHeader
         title="Download Queue"
-        subtitle={`${jobs.length} ${jobs.length === 1 ? 'task' : 'tasks'} in queue`}
+        subtitle={`${jobs.length} total ${jobs.length === 1 ? 'task' : 'tasks'}`}
         rightAction={
           hasTerminalJobs
             ? {
@@ -251,20 +303,126 @@ export default function QueueScreen() {
         }
       />
 
+      {/* Segmented Filter Pills */}
+      {jobs.length > 0 && (
+        <View style={styles.filterBar}>
+          <Pressable
+            onPress={() => setActiveFilter('ALL')}
+            style={[
+              styles.filterPill,
+              activeFilter === 'ALL' && [
+                styles.activeFilterPill,
+                { backgroundColor: colors.primaryContainer || colors.primaryLight, borderColor: colors.primary },
+              ],
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Show all downloads, count ${jobs.length}`}
+          >
+            <Text
+              style={[
+                typography.labelMedium,
+                { color: activeFilter === 'ALL' ? colors.primary : colors.textSecondary },
+              ]}
+            >
+              All ({jobs.length})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setActiveFilter('ACTIVE')}
+            style={[
+              styles.filterPill,
+              activeFilter === 'ACTIVE' && [
+                styles.activeFilterPill,
+                { backgroundColor: colors.primaryContainer || colors.primaryLight, borderColor: colors.primary },
+              ],
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Show active downloads, count ${activeCount}`}
+          >
+            <Text
+              style={[
+                typography.labelMedium,
+                { color: activeFilter === 'ACTIVE' ? colors.primary : colors.textSecondary },
+              ]}
+            >
+              Active ({activeCount})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setActiveFilter('COMPLETED')}
+            style={[
+              styles.filterPill,
+              activeFilter === 'COMPLETED' && [
+                styles.activeFilterPill,
+                { backgroundColor: colors.primaryContainer || colors.primaryLight, borderColor: colors.primary },
+              ],
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Show completed downloads, count ${completedCount}`}
+          >
+            <Text
+              style={[
+                typography.labelMedium,
+                { color: activeFilter === 'COMPLETED' ? colors.primary : colors.textSecondary },
+              ]}
+            >
+              Completed ({completedCount})
+            </Text>
+          </Pressable>
+
+          {failedCount > 0 && (
+            <Pressable
+              onPress={() => setActiveFilter('FAILED')}
+              style={[
+                styles.filterPill,
+                activeFilter === 'FAILED' && [
+                  styles.activeFilterPill,
+                  { backgroundColor: colors.dangerLight, borderColor: colors.danger },
+                ],
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Show failed downloads, count ${failedCount}`}
+            >
+              <Text
+                style={[
+                  typography.labelMedium,
+                  { color: activeFilter === 'FAILED' ? colors.danger : colors.textSecondary },
+                ]}
+              >
+                Failed ({failedCount})
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
       {jobs.length === 0 ? (
         <EmptyState
           iconName="file-tray-outline"
           title="Queue is Empty"
-          description="Downloads you start from the Home screen will appear here with real-time streaming progress, pause/resume, and controls."
-          actionTitle="Start a Download"
+          description="Downloads you start from the Home screen appear here with real-time streaming progress, pause/resume, and controls."
+          actionTitle="Download a Video"
           actionIcon="arrow-down-circle"
           onAction={() => router.push('/(tabs)')}
         />
+      ) : filteredJobs.length === 0 ? (
+        <View style={styles.filteredEmpty}>
+          <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>No items match this filter</Text>
+          <Button
+            title="Show All Downloads"
+            onPress={() => setActiveFilter('ALL')}
+            variant="secondary"
+            size="sm"
+            style={{ marginTop: spacing.md }}
+          />
+        </View>
       ) : (
         <FlatList
-          data={jobs}
+          data={filteredJobs}
           keyExtractor={(item) => item.id}
-          renderItem={renderJobItem}
+          renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
         />
@@ -277,64 +435,121 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  filterBar: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    gap: spacing.xs,
+  },
+  filterPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  activeFilterPill: {
+    borderWidth: 1,
+  },
   listContent: {
     paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
     paddingBottom: spacing.xxxl,
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  jobCard: {
+  activeStreamCard: {
+    borderRadius: borderRadius.xl,
+    borderWidth: 1.5,
+    padding: spacing.lg,
     marginBottom: spacing.xs,
   },
-  cardHeader: {
+  activeCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: spacing.sm,
   },
-  titleArea: {
+  activeTitleCol: {
     flex: 1,
+    marginRight: spacing.md,
   },
-  creatorRow: {
+  statusPillRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
   },
-  progressSection: {
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 6,
+  },
+  activeActionControls: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  circleActionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeProgressBox: {
     marginTop: spacing.md,
   },
-  bytesRow: {
+  activeBytesRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: spacing.xs + 2,
   },
-  completedInfoBox: {
+  completedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.sm + 2,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
-    marginTop: spacing.md,
+    padding: spacing.md,
+    marginBottom: spacing.xs,
   },
-  errorBox: {
+  completedIconWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  completedTextCol: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  sharePillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.sm + 2,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: borderRadius.full,
+    minHeight: 38,
   },
-  cardActions: {
+  failedRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.xs,
     gap: spacing.sm,
-    marginTop: spacing.md,
   },
-  actionBtn: {
+  failedTextCol: {
     flex: 1,
-    minHeight: spacing.touchTargetMin,
   },
-  fullActionBtn: {
+  retryBtn: {
+    minHeight: 38,
+    paddingHorizontal: spacing.md,
+  },
+  filteredEmpty: {
     flex: 1,
-    minHeight: spacing.touchTargetMin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
   },
 });

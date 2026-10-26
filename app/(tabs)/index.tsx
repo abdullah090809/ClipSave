@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,11 +19,12 @@ import { spacing, borderRadius, elevation } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
 import { Button } from '../../src/components/Button';
 import { Card } from '../../src/components/Card';
-import { DisclaimerBanner } from '../../src/components/DisclaimerBanner';
 import { extractAndValidateTikTokUrl } from '../../src/utils/urlValidator';
 import { resolveTikTokUrl } from '../../src/services/apiClient';
 import { getSettings } from '../../src/storage/settingsStore';
-import { ResolveError } from '../../src/types';
+import { subscribeQueue } from '../../src/storage/queueStore';
+import { formatBytes } from '../../src/utils/formatters';
+import { DownloadJob, ResolveError } from '../../src/types';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -34,12 +35,22 @@ export default function HomeScreen() {
   const [resolving, setResolving] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isMockMode, setIsMockMode] = useState(false);
+  const [activeJobs, setActiveJobs] = useState<DownloadJob[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       getSettings().then((s) => setIsMockMode(Boolean(s.useMockResolver))).catch(() => {});
     }, [])
   );
+
+  useEffect(() => {
+    return subscribeQueue((jobs) => {
+      const active = jobs.filter(
+        (j) => j.state === 'DOWNLOADING' || j.state === 'FINALIZING' || j.state === 'QUEUED'
+      );
+      setActiveJobs(active);
+    });
+  }, []);
 
   const handlePaste = async () => {
     try {
@@ -97,8 +108,52 @@ export default function HomeScreen() {
     }
   };
 
+  const currentActiveJob = activeJobs[0];
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      {/* Top Application Bar */}
+      <View style={styles.topAppBar}>
+        <View style={styles.brandTitleRow}>
+          <View
+            style={[
+              styles.appIconBadge,
+              { backgroundColor: colors.primaryContainer || colors.primaryLight },
+            ]}
+          >
+            <Ionicons name="film" size={20} color={colors.primary} />
+          </View>
+          <View style={{ marginLeft: spacing.sm }}>
+            <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>ClipSave</Text>
+            <Text style={[typography.micro, { color: colors.textMuted }]}>TikTok Downloader</Text>
+          </View>
+        </View>
+
+        <View style={styles.topBarActions}>
+          {isMockMode && (
+            <Pressable
+              onPress={() => router.push('/(tabs)/settings')}
+              style={[styles.mockModeChip, { backgroundColor: colors.warningLight, borderColor: colors.warning }]}
+              accessibilityRole="button"
+              accessibilityLabel="Mock mode active, tap to change in settings"
+            >
+              <Ionicons name="construct-outline" size={13} color={colors.warning} />
+              <Text style={[typography.labelMedium, { color: colors.warning, marginLeft: 4 }]}>Mock Mode</Text>
+            </Pressable>
+          )}
+
+          <Pressable
+            onPress={() => router.push('/(tabs)/settings')}
+            android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+            style={styles.topSettingsBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Open settings"
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+      </View>
+
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -109,66 +164,47 @@ export default function HomeScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Mock Resolver Mode Notice (Dev) */}
-          {isMockMode && (
-            <View
-              style={[
-                styles.mockBanner,
-                {
-                  backgroundColor: colors.warningLight,
-                  borderColor: colors.warning,
-                },
-              ]}
-              accessible={true}
-              accessibilityRole="alert"
-            >
-              <Ionicons name="construct-outline" size={16} color={colors.warning} />
-              <Text style={[typography.labelMedium, { color: colors.warning, marginLeft: spacing.xs, flex: 1 }]}>
-                Mock Resolver Mode Active (Offline Fixtures)
+          {/* Primary Action Console (Floating Hero Deck) */}
+          <View
+            style={[
+              styles.actionConsole,
+              {
+                backgroundColor: colors.surfaceContainerLowest || colors.surface,
+                borderColor: isInputFocused ? colors.primary : colors.outlineVariant || colors.surfaceBorder,
+              },
+              Platform.OS === 'android' ? elevation.level2 : {},
+            ]}
+          >
+            <View style={styles.consoleHeader}>
+              <Text style={[typography.headlineMedium, { color: colors.textPrimary }]}>
+                Download Video
               </Text>
+              <Pressable
+                onPress={handlePaste}
+                android_ripple={{ color: colors.ripple, borderless: false }}
+                style={[
+                  styles.pasteChip,
+                  {
+                    backgroundColor: colors.primaryContainer || colors.primaryLight,
+                    borderColor: colors.primary,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Paste link from clipboard"
+              >
+                <Ionicons name="clipboard-outline" size={15} color={colors.primary} />
+                <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>
+                  Paste Link
+                </Text>
+              </Pressable>
             </View>
-          )}
 
-          {/* Hero Branding */}
-          <View style={styles.brandHero}>
+            {/* URL Input Box */}
             <View
               style={[
-                styles.logoBadge,
+                styles.urlInputContainer,
                 {
-                  backgroundColor: colors.primaryContainer || colors.primaryLight,
-                  borderColor: colors.primary,
-                },
-                Platform.OS === 'android' ? elevation.level1 : {},
-              ]}
-            >
-              <Ionicons name="film" size={28} color={colors.primary} />
-            </View>
-            <Text style={[typography.display, { color: colors.textPrimary, marginTop: spacing.md }]}>
-              ClipSave
-            </Text>
-            <Text style={[typography.body, { color: colors.textSecondary, marginTop: 2, textAlign: 'center' }]}>
-              Fast, watermark-free media downloader
-            </Text>
-          </View>
-
-          {/* Transparency / Compliance Notice */}
-          <DisclaimerBanner />
-
-          {/* Main Download Card */}
-          <Card variant="elevated" style={styles.inputCard}>
-            <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>
-              Download TikTok Video
-            </Text>
-            <Text style={[typography.bodySmall, { color: colors.textMuted, marginTop: 2 }]}>
-              Paste any public video link from tiktok.com or vt.tiktok.com
-            </Text>
-
-            {/* Input Field Container */}
-            <View
-              style={[
-                styles.inputWrapper,
-                {
-                  backgroundColor: colors.inputBackground,
+                  backgroundColor: colors.surfaceContainerLow || colors.inputBackground,
                   borderColor: validationError
                     ? colors.danger
                     : isInputFocused
@@ -178,14 +214,14 @@ export default function HomeScreen() {
               ]}
             >
               <Ionicons
-                name="link"
+                name="link-outline"
                 size={20}
                 color={isInputFocused ? colors.primary : colors.textMuted}
-                style={styles.inputIcon}
+                style={styles.linkIcon}
               />
               <TextInput
-                style={[styles.textInput, { color: colors.textPrimary }]}
-                placeholder="https://www.tiktok.com/@user/video/..."
+                style={[styles.urlTextInput, { color: colors.textPrimary }]}
+                placeholder="Paste TikTok video link here..."
                 placeholderTextColor={colors.textMuted}
                 value={inputUrl}
                 onChangeText={(t) => {
@@ -203,12 +239,11 @@ export default function HomeScreen() {
                 accessibilityLabel="TikTok Video URL Input"
                 accessibilityHint="Enter or paste a valid public TikTok video link"
               />
-
               {inputUrl.length > 0 && (
                 <Pressable
                   onPress={handleClear}
                   android_ripple={{ color: colors.ripple, borderless: true, radius: 20 }}
-                  style={styles.clearIconButton}
+                  style={styles.clearBtn}
                   accessibilityRole="button"
                   accessibilityLabel="Clear URL input"
                 >
@@ -217,10 +252,10 @@ export default function HomeScreen() {
               )}
             </View>
 
-            {/* Inline Error Message */}
+            {/* Inline Error Callout */}
             {validationError && (
               <View
-                style={[styles.errorContainer, { backgroundColor: colors.dangerLight }]}
+                style={[styles.errorCallout, { backgroundColor: colors.dangerLight }]}
                 accessible={true}
                 accessibilityRole="alert"
                 accessibilityLiveRegion="polite"
@@ -232,109 +267,109 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* Action Buttons Row */}
-            <View style={styles.actionRow}>
-              <Button
-                title="Paste"
-                icon={<Ionicons name="clipboard-outline" size={18} color={colors.textPrimary} />}
-                onPress={handlePaste}
-                variant="secondary"
-                style={styles.pasteButton}
-                disabled={resolving}
-                accessibilityLabel="Paste link from clipboard"
-              />
-              <Button
-                title="Resolve & Preview"
-                icon={<Ionicons name="arrow-forward" size={18} color="#FFFFFF" />}
-                onPress={handleResolve}
-                variant="primary"
-                loading={resolving}
-                style={styles.resolveButton}
-                accessibilityLabel="Resolve TikTok video metadata"
-              />
-            </View>
-          </Card>
+            {/* Dominant Primary Action */}
+            <Button
+              title="Resolve & Preview"
+              icon={<Ionicons name="arrow-forward" size={18} color="#FFFFFF" />}
+              onPress={handleResolve}
+              variant="primary"
+              size="lg"
+              loading={resolving}
+              style={styles.resolveButton}
+              accessibilityLabel="Resolve video and show preview"
+            />
+          </View>
 
-          {/* Feature Highlights Grid */}
-          <View style={styles.featuresRow}>
+          {/* Active Download Live Shelf (Shows when downloads are running) */}
+          {currentActiveJob && (
+            <Card
+              variant="elevated"
+              onPress={() => router.push('/(tabs)/queue')}
+              style={styles.activeShelfCard}
+              accessibilityLabel="View active download in queue"
+            >
+              <View style={styles.shelfHeader}>
+                <View style={styles.shelfTitleGroup}>
+                  <View style={[styles.pulseDot, { backgroundColor: colors.primary }]} />
+                  <Text style={[typography.labelMedium, { color: colors.primary }]}>
+                    DOWNLOAD IN PROGRESS
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+              </View>
+              <Text style={[typography.titleSmall, { color: colors.textPrimary, marginTop: 4 }]} numberOfLines={1}>
+                {currentActiveJob.media.title || 'TikTok Video'}
+              </Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                {formatBytes(currentActiveJob.bytesDownloaded)}
+                {currentActiveJob.totalBytes ? ` / ${formatBytes(currentActiveJob.totalBytes)}` : ' streaming'} • {currentActiveJob.statusMessage}
+              </Text>
+            </Card>
+          )}
+
+          {/* Quick Workflow Stepper (Compact 3-Step Row) */}
+          <View style={styles.workflowContainer}>
+            <Text style={[typography.micro, { color: colors.textMuted, marginBottom: spacing.sm }]}>
+              HOW CLIPSAVE WORKS
+            </Text>
             <View
               style={[
-                styles.featurePill,
+                styles.workflowRow,
                 {
                   backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
                   borderColor: colors.outlineVariant || colors.surfaceBorder,
                 },
               ]}
             >
-              <Ionicons name="sparkles" size={14} color={colors.primary} />
-              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 6 }]}>
-                Clean MP4 Stream
-              </Text>
-            </View>
+              <View style={styles.stepItem}>
+                <View style={[styles.stepNumberBadge, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                  <Text style={[typography.labelMedium, { color: colors.primary }]}>1</Text>
+                </View>
+                <Text style={[typography.labelMedium, { color: colors.textPrimary, marginTop: 6 }]}>
+                  Copy Link
+                </Text>
+                <Text style={[typography.micro, { color: colors.textMuted, marginTop: 2 }]}>
+                  from TikTok
+                </Text>
+              </View>
 
-            <View
-              style={[
-                styles.featurePill,
-                {
-                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
-                  borderColor: colors.outlineVariant || colors.surfaceBorder,
-                },
-              ]}
-            >
-              <Ionicons name="shield-checkmark" size={14} color={colors.success} />
-              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 6 }]}>
-                Private & Secure
-              </Text>
-            </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.outlineVariant || colors.surfaceBorder} />
 
-            <View
-              style={[
-                styles.featurePill,
-                {
-                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
-                  borderColor: colors.outlineVariant || colors.surfaceBorder,
-                },
-              ]}
-            >
-              <Ionicons name="infinite" size={14} color={colors.accent} />
-              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 6 }]}>
-                Any Duration
-              </Text>
+              <View style={styles.stepItem}>
+                <View style={[styles.stepNumberBadge, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                  <Text style={[typography.labelMedium, { color: colors.primary }]}>2</Text>
+                </View>
+                <Text style={[typography.labelMedium, { color: colors.textPrimary, marginTop: 6 }]}>
+                  Paste & Verify
+                </Text>
+                <Text style={[typography.micro, { color: colors.textMuted, marginTop: 2 }]}>
+                  clean stream
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={16} color={colors.outlineVariant || colors.surfaceBorder} />
+
+              <View style={styles.stepItem}>
+                <View style={[styles.stepNumberBadge, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                  <Text style={[typography.labelMedium, { color: colors.primary }]}>3</Text>
+                </View>
+                <Text style={[typography.labelMedium, { color: colors.textPrimary, marginTop: 6 }]}>
+                  Save to Phone
+                </Text>
+                <Text style={[typography.micro, { color: colors.textMuted, marginTop: 2 }]}>
+                  gallery or files
+                </Text>
+              </View>
             </View>
           </View>
 
-          {/* Guidance Card */}
-          <Card variant="outlined" style={styles.guideCard}>
-            <View style={styles.guideHeader}>
-              <View style={[styles.guideIconCircle, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
-                <Ionicons name="help-circle-outline" size={18} color={colors.primary} />
-              </View>
-              <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.sm }]}>
-                Quick Instructions
-              </Text>
-            </View>
-
-            <View style={styles.guideSteps}>
-              <View style={styles.stepRow}>
-                <Text style={[typography.labelLarge, { color: colors.primary, width: 22 }]}>1.</Text>
-                <Text style={[typography.bodySmall, { color: colors.textSecondary, flex: 1 }]}>
-                  Copy the share link from any public TikTok video.
-                </Text>
-              </View>
-              <View style={styles.stepRow}>
-                <Text style={[typography.labelLarge, { color: colors.primary, width: 22 }]}>2.</Text>
-                <Text style={[typography.bodySmall, { color: colors.textSecondary, flex: 1 }]}>
-                  Tap <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Paste</Text> and click <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Resolve & Preview</Text>.
-                </Text>
-              </View>
-              <View style={styles.stepRow}>
-                <Text style={[typography.labelLarge, { color: colors.primary, width: 22 }]}>3.</Text>
-                <Text style={[typography.bodySmall, { color: colors.textSecondary, flex: 1 }]}>
-                  Confirm metadata in the preview sheet and download directly to your device.
-                </Text>
-              </View>
-            </View>
-          </Card>
+          {/* Trust & Transparency Minimal Footer */}
+          <View style={styles.transparencyFooter}>
+            <Ionicons name="shield-checkmark-outline" size={14} color={colors.textMuted} />
+            <Text style={[typography.bodySmall, { color: colors.textMuted, marginLeft: 6, flex: 1 }]}>
+              ClipSave does not bypass private accounts. Zero tracking, local device storage.
+            </Text>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -345,117 +380,153 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  topAppBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    minHeight: 56,
+  },
+  brandTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  appIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  mockModeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+  },
+  topSettingsBtn: {
+    width: spacing.touchTargetMin,
+    height: spacing.touchTargetMin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.full,
+  },
   keyboardContainer: {
     flex: 1,
   },
   scrollContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
     paddingBottom: spacing.xxxl,
   },
-  mockBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.xs + 2,
-    paddingHorizontal: spacing.md,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-  },
-  brandHero: {
-    alignItems: 'center',
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.lg,
-    paddingHorizontal: spacing.lg,
-  },
-  logoBadge: {
-    width: 64,
-    height: 64,
+  actionConsole: {
     borderRadius: borderRadius.xl,
     borderWidth: 1.5,
+    padding: spacing.xl,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  consoleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  inputCard: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  inputWrapper: {
+  pasteChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderRadius: borderRadius.md,
-    marginTop: spacing.md,
     paddingHorizontal: spacing.md,
-    minHeight: 52,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
   },
-  inputIcon: {
+  urlInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1.5,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.lg,
+    minHeight: 56,
+  },
+  linkIcon: {
     marginRight: spacing.sm,
   },
-  textInput: {
+  urlTextInput: {
     flex: 1,
     fontSize: 15,
     paddingVertical: spacing.sm,
   },
-  clearIconButton: {
+  clearBtn: {
     width: spacing.touchTargetMin,
     height: spacing.touchTargetMin,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  errorContainer: {
+  errorCallout: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.sm + 2,
-    borderRadius: borderRadius.sm,
-    marginTop: spacing.sm,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-  },
-  pasteButton: {
-    flex: 1,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.md,
   },
   resolveButton: {
-    flex: 1.4,
+    marginTop: spacing.lg,
+    width: '100%',
   },
-  featuresRow: {
+  activeShelfCard: {
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+  },
+  shelfHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs + 2,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  featurePill: {
+  shelfTitleGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xs + 2,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.full,
+  },
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  workflowContainer: {
+    marginBottom: spacing.lg,
+  },
+  workflowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.sm,
   },
-  guideCard: {
-    marginHorizontal: spacing.lg,
-  },
-  guideHeader: {
-    flexDirection: 'row',
+  stepItem: {
     alignItems: 'center',
+    flex: 1,
   },
-  guideIconCircle: {
-    width: 32,
-    height: 32,
+  stepNumberBadge: {
+    width: 28,
+    height: 28,
     borderRadius: borderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  guideSteps: {
-    marginTop: spacing.md,
-    gap: spacing.sm,
-  },
-  stepRow: {
+  transparencyFooter: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
   },
 });

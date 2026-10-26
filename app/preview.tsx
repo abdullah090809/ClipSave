@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, elevation } from '../src/theme/spacing';
 import { typography } from '../src/theme/typography';
-import { Card } from '../src/components/Card';
 import { Badge } from '../src/components/Badge';
 import { Button } from '../src/components/Button';
 import { startDownload } from '../src/services/downloadEngine';
@@ -88,26 +87,38 @@ export default function PreviewModal() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-      {/* Top App Bar */}
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={() => router.back()}
-          android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
-          style={styles.closeBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss video preview"
-        >
-          <Ionicons name="close" size={24} color={colors.textPrimary} />
-        </Pressable>
-        <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Video Preview</Text>
-        <View style={{ width: 44 }} />
+      {/* Top Modal Header with Drag Indicator and Dismiss Button */}
+      <View style={styles.sheetHeader}>
+        <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+        <View style={styles.topBarRow}>
+          <Pressable
+            onPress={() => router.back()}
+            android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+            style={styles.closeBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss video preview"
+          >
+            <Ionicons name="close" size={24} color={colors.textPrimary} />
+          </Pressable>
+          <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Video Confirmation</Text>
+          <View style={{ width: 44 }} />
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Main Preview Card */}
-        <Card variant="elevated" style={styles.previewCard}>
-          {/* Thumbnail / Hero Container */}
-          <View style={[styles.mediaContainer, { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated }]}>
+        {/* Cinematic 16:9 Hero Card */}
+        <View
+          style={[
+            styles.heroContainer,
+            {
+              backgroundColor: colors.surfaceContainerLowest || colors.surface,
+              borderColor: colors.outlineVariant || colors.surfaceBorder,
+            },
+            Platform.OS === 'android' ? elevation.level2 : {},
+          ]}
+        >
+          {/* Media Player Canvas */}
+          <View style={[styles.mediaCanvas, { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated }]}>
             {media.thumbnailUrl && !imageError ? (
               <Image
                 source={{ uri: media.thumbnailUrl }}
@@ -133,85 +144,87 @@ export default function PreviewModal() {
             )}
           </View>
 
-          {/* Details Body */}
+          {/* Details & Metadata Body */}
           <View style={styles.detailsArea}>
             <View style={styles.badgeRow}>
-              <Badge label="Stream Ready" variant="primary" />
+              <Badge label="Public Stream Ready" variant="primary" />
               {media.isCleanSourceVerified && (
-                <Badge label="Verified Clean" variant="success" />
+                <Badge label="Verified Clean MP4" variant="success" />
               )}
             </View>
 
             {/* Video Title */}
-            <Text style={[typography.headlineMedium, { color: colors.textPrimary, marginTop: spacing.sm }]}>
-              {media.title || 'Untitled Video'}
+            <Text style={[typography.headlineMedium, { color: colors.textPrimary, marginTop: spacing.md }]}>
+              {media.title || 'TikTok Video'}
             </Text>
 
             {/* Creator Attribution */}
             <View style={styles.authorRow}>
-              <Ionicons name="person-circle-outline" size={18} color={colors.primary} />
-              <Text style={[typography.titleSmall, { color: colors.primary, marginLeft: 6 }]}>
+              <View style={[styles.authorAvatar, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                <Ionicons name="person" size={14} color={colors.primary} />
+              </View>
+              <Text style={[typography.titleSmall, { color: colors.primary, marginLeft: spacing.sm }]}>
                 {media.author || 'Creator'}
-                {media.authorUsername ? ` (${media.authorUsername})` : ''}
+                {media.authorUsername ? ` (@${media.authorUsername.replace(/^@/, '')})` : ''}
               </Text>
             </View>
 
-            {/* Metadata Chips Grid */}
+            {/* 3-Column Material Metric Chips */}
             <View
               style={[
-                styles.metaGrid,
+                styles.metricRow,
                 {
                   backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
                   borderColor: colors.outlineVariant || colors.surfaceBorder,
                 },
               ]}
             >
-              <View style={styles.metaItem}>
+              <View style={styles.metricItem}>
                 <Text style={[typography.micro, { color: colors.textMuted }]}>FILE SIZE</Text>
                 <Text style={[typography.labelLarge, { color: colors.textPrimary, marginTop: 2 }]}>
                   {formatBytes(media.estimatedSizeBytes)}
                 </Text>
               </View>
 
-              <View style={[styles.metaDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+              <View style={[styles.metricDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
 
-              <View style={styles.metaItem}>
+              <View style={styles.metricItem}>
                 <Text style={[typography.micro, { color: colors.textMuted }]}>FORMAT</Text>
                 <Text style={[typography.labelLarge, { color: colors.textPrimary, marginTop: 2, textTransform: 'uppercase' }]}>
                   {media.format || 'MP4'}
                 </Text>
               </View>
 
-              <View style={[styles.metaDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+              <View style={[styles.metricDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
 
-              <View style={styles.metaItem}>
+              <View style={styles.metricItem}>
                 <Text style={[typography.micro, { color: colors.textMuted }]}>TYPE</Text>
                 <Text style={[typography.labelLarge, { color: colors.textPrimary, marginTop: 2 }]}>
-                  Video (VOD)
+                  VOD Video
                 </Text>
               </View>
             </View>
 
-            {/* Responsibility Notice */}
+            {/* Safe Authorization Notice */}
             <View
               style={[
-                styles.reminderBox,
+                styles.safeNoticeBox,
                 {
                   backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
                   borderColor: colors.outlineVariant || colors.surfaceBorder,
                 },
               ]}
             >
-              <Ionicons name="shield-outline" size={16} color={colors.textMuted} />
+              <Ionicons name="shield-checkmark-outline" size={16} color={colors.success} />
               <Text style={[typography.bodySmall, { color: colors.textSecondary, marginLeft: spacing.xs, flex: 1 }]}>
-                Confirm you are authorized to save this video to your local device.
+                Verified stream will download chunk-by-chunk to your device storage.
               </Text>
             </View>
           </View>
-        </Card>
+        </View>
       </ScrollView>
 
-      {/* Bottom Sticky Action Bar */}
+      {/* Floating Bottom Action Bar */}
       <View
         style={[
           styles.bottomActionBar,
@@ -219,25 +232,27 @@ export default function PreviewModal() {
             backgroundColor: colors.surfaceContainerLowest || colors.surface,
             borderTopColor: colors.outlineVariant || colors.surfaceBorder,
           },
-          Platform.OS === 'android' ? elevation.level2 : {},
+          Platform.OS === 'android' ? elevation.level3 : {},
         ]}
       >
         <Button
           title="Cancel"
           onPress={() => router.back()}
           variant="secondary"
-          style={styles.cancelButton}
+          size="lg"
+          style={styles.cancelBtn}
           disabled={downloadStarting}
-          accessibilityLabel="Cancel and return"
+          accessibilityLabel="Cancel and return to home"
         />
         <Button
-          title="Start Download"
-          icon={<Ionicons name="download" size={18} color="#FFFFFF" />}
+          title="Download Now"
+          icon={<Ionicons name="download" size={20} color="#FFFFFF" />}
           onPress={handleStartDownload}
           variant="primary"
+          size="lg"
           loading={downloadStarting}
-          style={styles.downloadButton}
-          accessibilityLabel="Confirm and start downloading video"
+          style={styles.downloadBtn}
+          accessibilityLabel="Start downloading video now"
         />
       </View>
     </SafeAreaView>
@@ -248,12 +263,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  topBar: {
+  sheetHeader: {
+    alignItems: 'center',
+    paddingTop: spacing.xs,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: spacing.xs,
+  },
+  topBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    width: '100%',
     paddingHorizontal: spacing.md,
-    minHeight: 56,
+    minHeight: 48,
   },
   closeBtn: {
     width: spacing.touchTargetMin,
@@ -263,14 +289,16 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
   },
   scrollContent: {
-    padding: spacing.lg,
-    paddingBottom: 100, // Space for sticky bottom action bar
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: 110, // Space for sticky bottom action bar
   },
-  previewCard: {
-    padding: 0,
+  heroContainer: {
+    borderRadius: borderRadius.xl,
+    borderWidth: 1.5,
     overflow: 'hidden',
   },
-  mediaContainer: {
+  mediaCanvas: {
     width: '100%',
     height: 220,
     position: 'relative',
@@ -297,7 +325,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   detailsArea: {
-    padding: spacing.lg,
+    padding: spacing.xl,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -307,26 +335,33 @@ const styles = StyleSheet.create({
   authorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
-  metaGrid: {
+  authorAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
     marginTop: spacing.lg,
   },
-  metaItem: {
+  metricItem: {
     flex: 1,
     alignItems: 'center',
   },
-  metaDivider: {
+  metricDivider: {
     width: 1,
-    height: 24,
+    height: 26,
   },
-  reminderBox: {
+  safeNoticeBox: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md,
@@ -346,10 +381,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderTopWidth: 1,
   },
-  cancelButton: {
+  cancelBtn: {
     flex: 1,
   },
-  downloadButton: {
+  downloadBtn: {
     flex: 1.8,
   },
   emptyContainer: {
@@ -364,5 +399,12 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.xl,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    minHeight: 56,
   },
 });

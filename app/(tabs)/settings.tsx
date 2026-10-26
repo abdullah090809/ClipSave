@@ -8,6 +8,7 @@ import {
   TextInput,
   Alert,
   Platform,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { SegmentedControl, SegmentOption } from '../../src/components/SegmentedControl';
@@ -30,6 +30,7 @@ export default function SettingsScreen() {
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [backendUrlInput, setBackendUrlInput] = useState('');
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
 
   useEffect(() => {
     getSettings().then((s) => {
@@ -83,6 +84,7 @@ export default function SettingsScreen() {
       return;
     }
     updateSetting({ backendBaseUrl: trimmed });
+    setIsEditingUrl(false);
     Alert.alert('Saved', 'Resolver backend URL successfully updated.');
   };
 
@@ -102,163 +104,270 @@ export default function SettingsScreen() {
       />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Appearance Group */}
-        <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
-          APPEARANCE
-        </Text>
-        <Card variant="outlined" style={styles.card}>
-          <Text style={[typography.titleMedium, { color: colors.textPrimary, marginBottom: spacing.sm }]}>
-            Theme Mode
+        {/* Section 1: Appearance */}
+        <View style={styles.sectionContainer}>
+          <Text style={[typography.micro, styles.sectionTitle, { color: colors.textMuted }]}>
+            APPEARANCE
           </Text>
-          <SegmentedControl
-            options={themeOptions}
-            selectedValue={themeMode}
-            onSelect={setThemeMode}
-            accessibilityLabel="Select appearance theme mode"
-          />
-        </Card>
-
-        {/* Download Behavior */}
-        <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
-          DOWNLOAD BEHAVIOR
-        </Text>
-        <Card variant="outlined" style={styles.card}>
-          <View style={styles.switchRow}>
-            <View style={styles.switchText}>
-              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Auto-start Download</Text>
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                Automatically start downloading immediately after resolving metadata
-              </Text>
-            </View>
-            <Switch
-              value={settings.autoDownloadOnResolve}
-              onValueChange={(val) => updateSetting({ autoDownloadOnResolve: val })}
-              trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
-              thumbColor={Platform.OS === 'android' ? (settings.autoDownloadOnResolve ? '#FFFFFF' : '#F4F3F4') : undefined}
-            />
-          </View>
-
-          <View style={[styles.divider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
-
-          <View style={styles.switchRow}>
-            <View style={styles.switchText}>
-              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Save to Android Gallery</Text>
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                Insert completed videos into public gallery (ClipSave album)
-              </Text>
-            </View>
-            <Switch
-              value={settings.saveToGallery}
-              onValueChange={(val) => updateSetting({ saveToGallery: val })}
-              trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
-              thumbColor={Platform.OS === 'android' ? (settings.saveToGallery ? '#FFFFFF' : '#F4F3F4') : undefined}
-            />
-          </View>
-        </Card>
-
-        {/* Resolver Configuration */}
-        <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
-          RESOLVER CONFIGURATION
-        </Text>
-        <Card variant="outlined" style={styles.card}>
-          <View style={styles.switchRow}>
-            <View style={styles.switchText}>
-              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Mock Resolver Mode</Text>
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                Use deterministic local test fixtures without network or extractor requests
-              </Text>
-            </View>
-            <Switch
-              value={settings.useMockResolver}
-              onValueChange={(val) => updateSetting({ useMockResolver: val })}
-              trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
-              thumbColor={Platform.OS === 'android' ? (settings.useMockResolver ? '#FFFFFF' : '#F4F3F4') : undefined}
-            />
-          </View>
-
-          {!settings.useMockResolver && (
-            <>
-              <View style={[styles.divider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
-              <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: spacing.xs }]}>
-                Backend Base URL
-              </Text>
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                FastAPI resolver host (LAN IP or domain)
-              </Text>
-
-              <View style={styles.urlInputRow}>
-                <TextInput
-                  style={[
-                    styles.urlInput,
-                    {
-                      backgroundColor: colors.inputBackground,
-                      borderColor: colors.outlineVariant || colors.inputBorder,
-                      color: colors.textPrimary,
-                    },
-                  ]}
-                  value={backendUrlInput}
-                  onChangeText={setBackendUrlInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="http://192.168.1.21:8080"
-                  placeholderTextColor={colors.textMuted}
-                />
-                <Button
-                  title="Save"
-                  onPress={handleSaveBackendUrl}
-                  variant="primary"
-                  style={styles.saveUrlBtn}
-                />
+          <View
+            style={[
+              styles.sectionCard,
+              {
+                backgroundColor: colors.surfaceContainerLowest || colors.surface,
+                borderColor: colors.outlineVariant || colors.surfaceBorder,
+              },
+            ]}
+          >
+            <View style={styles.themeRow}>
+              <View style={[styles.settingIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                <Ionicons name="color-palette-outline" size={18} color={colors.primary} />
               </View>
-            </>
-          )}
-        </Card>
-
-        {/* Data & Storage */}
-        <Text style={[typography.micro, styles.sectionHeader, { color: colors.textMuted }]}>
-          STORAGE & DATA
-        </Text>
-        <Card variant="outlined" style={styles.card}>
-          <Button
-            title="Clear Temporary Cache"
-            icon={<Ionicons name="trash-bin-outline" size={18} color={colors.textPrimary} />}
-            onPress={handleClearCache}
-            variant="secondary"
-            style={styles.storageBtn}
-            accessibilityHint="Deletes unreferenced temporary files while keeping saved videos"
-          />
-
-          <Button
-            title="Clear Download History..."
-            icon={<Ionicons name="trash-outline" size={18} color={colors.danger} />}
-            onPress={handleClearHistory}
-            variant="ghost"
-            textStyle={{ color: colors.danger }}
-            style={styles.storageBtnSpacing}
-            accessibilityHint="Open dialog to clear history records or saved video files"
-          />
-        </Card>
-
-        {/* About & Legal Card */}
-        <Card
-          variant="elevated"
-          onPress={() => router.push('/about')}
-          style={styles.aboutCard}
-          accessibilityLabel="Open About ClipSave and privacy notices"
-        >
-          <View style={styles.aboutRow}>
-            <View style={[styles.aboutIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
-              <Ionicons name="information-circle" size={22} color={colors.primary} />
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>Theme</Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                  Choose application appearance
+                </Text>
+              </View>
             </View>
-            <View style={styles.aboutText}>
-              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>About ClipSave</Text>
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                Version 1.0.0 • Privacy & Legal Notices • Architecture
+
+            <View style={{ marginTop: spacing.md }}>
+              <SegmentedControl
+                options={themeOptions}
+                selectedValue={themeMode}
+                onSelect={setThemeMode}
+                accessibilityLabel="Select appearance theme mode"
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Section 2: Download Preferences */}
+        <View style={styles.sectionContainer}>
+          <Text style={[typography.micro, styles.sectionTitle, { color: colors.textMuted }]}>
+            DOWNLOAD PREFERENCES
+          </Text>
+          <View
+            style={[
+              styles.sectionCard,
+              {
+                backgroundColor: colors.surfaceContainerLowest || colors.surface,
+                borderColor: colors.outlineVariant || colors.surfaceBorder,
+              },
+            ]}
+          >
+            <View style={styles.preferenceRow}>
+              <View style={[styles.settingIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                <Ionicons name="flash-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={styles.preferenceTextCol}>
+                <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>Auto-start Download</Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                  Download immediately after resolving link
+                </Text>
+              </View>
+              <Switch
+                value={settings.autoDownloadOnResolve}
+                onValueChange={(val) => updateSetting({ autoDownloadOnResolve: val })}
+                trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
+                thumbColor={Platform.OS === 'android' ? (settings.autoDownloadOnResolve ? '#FFFFFF' : '#F4F3F4') : undefined}
+              />
+            </View>
+
+            <View style={[styles.rowDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+
+            <View style={styles.preferenceRow}>
+              <View style={[styles.settingIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                <Ionicons name="images-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={styles.preferenceTextCol}>
+                <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>Save to Gallery</Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                  Insert downloaded MP4 into public device gallery
+                </Text>
+              </View>
+              <Switch
+                value={settings.saveToGallery}
+                onValueChange={(val) => updateSetting({ saveToGallery: val })}
+                trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
+                thumbColor={Platform.OS === 'android' ? (settings.saveToGallery ? '#FFFFFF' : '#F4F3F4') : undefined}
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Section 3: Resolver Configuration */}
+        <View style={styles.sectionContainer}>
+          <Text style={[typography.micro, styles.sectionTitle, { color: colors.textMuted }]}>
+            RESOLVER CONFIGURATION
+          </Text>
+          <View
+            style={[
+              styles.sectionCard,
+              {
+                backgroundColor: colors.surfaceContainerLowest || colors.surface,
+                borderColor: colors.outlineVariant || colors.surfaceBorder,
+              },
+            ]}
+          >
+            <View style={styles.preferenceRow}>
+              <View style={[styles.settingIconWrapper, { backgroundColor: colors.warningLight }]}>
+                <Ionicons name="construct-outline" size={18} color={colors.warning} />
+              </View>
+              <View style={styles.preferenceTextCol}>
+                <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>Mock Resolver Mode</Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                  Use offline mock fixtures for testing without network
+                </Text>
+              </View>
+              <Switch
+                value={settings.useMockResolver}
+                onValueChange={(val) => updateSetting({ useMockResolver: val })}
+                trackColor={{ false: colors.outlineVariant || colors.surfaceBorder, true: colors.primary }}
+                thumbColor={Platform.OS === 'android' ? (settings.useMockResolver ? '#FFFFFF' : '#F4F3F4') : undefined}
+              />
+            </View>
+
+            {!settings.useMockResolver && (
+              <>
+                <View style={[styles.rowDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+
+                <View style={styles.backendRow}>
+                  <View style={[styles.settingIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+                    <Ionicons name="server-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: spacing.md }}>
+                    <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>Backend Server URL</Text>
+                    <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]} numberOfLines={1}>
+                      {settings.backendBaseUrl}
+                    </Text>
+                  </View>
+                  <Button
+                    title={isEditingUrl ? 'Cancel' : 'Edit'}
+                    onPress={() => setIsEditingUrl(!isEditingUrl)}
+                    variant="ghost"
+                    size="sm"
+                  />
+                </View>
+
+                {isEditingUrl && (
+                  <View style={styles.editUrlBox}>
+                    <TextInput
+                      style={[
+                        styles.urlInput,
+                        {
+                          backgroundColor: colors.surfaceContainerLow || colors.inputBackground,
+                          borderColor: colors.primary,
+                          color: colors.textPrimary,
+                        },
+                      ]}
+                      value={backendUrlInput}
+                      onChangeText={setBackendUrlInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      placeholder="http://192.168.1.21:8080"
+                      placeholderTextColor={colors.textMuted}
+                    />
+                    <Button
+                      title="Save"
+                      onPress={handleSaveBackendUrl}
+                      variant="primary"
+                      size="sm"
+                      style={{ marginTop: spacing.sm }}
+                    />
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+
+        {/* Section 4: Storage & Data */}
+        <View style={styles.sectionContainer}>
+          <Text style={[typography.micro, styles.sectionTitle, { color: colors.textMuted }]}>
+            STORAGE & DATA
+          </Text>
+          <View
+            style={[
+              styles.sectionCard,
+              {
+                backgroundColor: colors.surfaceContainerLowest || colors.surface,
+                borderColor: colors.outlineVariant || colors.surfaceBorder,
+              },
+            ]}
+          >
+            <Pressable
+              onPress={handleClearCache}
+              android_ripple={{ color: colors.ripple, borderless: false }}
+              style={styles.clickableRow}
+              accessibilityRole="button"
+              accessibilityLabel="Clear temporary cache files"
+            >
+              <View style={[styles.settingIconWrapper, { backgroundColor: colors.surfaceContainerHigh || colors.surfaceElevated }]}>
+                <Ionicons name="trash-bin-outline" size={18} color={colors.textPrimary} />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>Clear Temporary Cache</Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
+                  Safely remove unreferenced stream files
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <View style={[styles.rowDivider, { backgroundColor: colors.outlineVariant || colors.surfaceBorder }]} />
+
+            <Pressable
+              onPress={handleClearHistory}
+              android_ripple={{ color: colors.ripple, borderless: false }}
+              style={styles.clickableRow}
+              accessibilityRole="button"
+              accessibilityLabel="Clear download history and files"
+            >
+              <View style={[styles.settingIconWrapper, { backgroundColor: colors.dangerLight }]}>
+                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+              </View>
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={[typography.titleSmall, { color: colors.danger }]}>Clear Download History...</Text>
+                <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
+                  Manage history records or delete all saved videos
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Section 5: About Navigation Tile */}
+        <View style={[styles.sectionContainer, { marginBottom: spacing.xxxl }]}>
+          <Text style={[typography.micro, styles.sectionTitle, { color: colors.textMuted }]}>
+            INFORMATION
+          </Text>
+          <Pressable
+            onPress={() => router.push('/about')}
+            android_ripple={{ color: colors.ripple, borderless: false }}
+            style={[
+              styles.sectionCard,
+              styles.clickableRow,
+              {
+                backgroundColor: colors.surfaceContainerLowest || colors.surface,
+                borderColor: colors.outlineVariant || colors.surfaceBorder,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="View About, Privacy & Open Source Notices"
+          >
+            <View style={[styles.settingIconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+              <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1, marginLeft: spacing.md }}>
+              <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>About ClipSave</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
+                Version 1.0.0 • Privacy notices • Open-source licenses
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-          </View>
-        </Card>
+          </Pressable>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -269,73 +378,64 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: spacing.xxxl,
-  },
-  sectionHeader: {
     paddingHorizontal: spacing.lg,
-    marginTop: spacing.lg,
-    marginBottom: spacing.xs,
+    paddingTop: spacing.xs,
   },
-  card: {
-    marginHorizontal: spacing.lg,
-  },
-  aboutCard: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.lg,
+  sectionContainer: {
     marginBottom: spacing.lg,
   },
-  switchRow: {
+  sectionTitle: {
+    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.xs + 2,
+  },
+  sectionCard: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    overflow: 'hidden',
+  },
+  themeRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: spacing.md,
   },
-  switchText: {
+  settingIconWrapper: {
+    width: 38,
+    height: 38,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  preferenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  preferenceTextCol: {
     flex: 1,
+    marginHorizontal: spacing.md,
   },
-  divider: {
+  rowDivider: {
     height: 1,
     marginVertical: spacing.md,
   },
-  urlInputRow: {
+  backendRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  editUrlBox: {
+    marginTop: spacing.md,
   },
   urlInput: {
-    flex: 1,
     borderWidth: 1.5,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     fontSize: 14,
-    minHeight: spacing.touchTargetMin,
+    minHeight: 46,
   },
-  saveUrlBtn: {
-    minHeight: spacing.touchTargetMin,
-    paddingHorizontal: spacing.lg,
-  },
-  storageBtn: {
-    width: '100%',
-    minHeight: spacing.touchTargetMin,
-  },
-  storageBtnSpacing: {
-    width: '100%',
-    marginTop: spacing.sm,
-    minHeight: spacing.touchTargetMin,
-  },
-  aboutRow: {
+  clickableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  aboutIconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  aboutText: {
-    flex: 1,
+    paddingVertical: spacing.xs,
   },
 });

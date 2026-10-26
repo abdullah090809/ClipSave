@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Alert,
   Image,
   Pressable,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -14,7 +15,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
 import { EmptyState } from '../../src/components/EmptyState';
 import { ScreenHeader } from '../../src/components/ScreenHeader';
@@ -34,6 +34,7 @@ export default function HistoryScreen() {
   const router = useRouter();
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const refreshHistory = useCallback(async () => {
     setLoading(true);
@@ -45,6 +46,21 @@ export default function HistoryScreen() {
   useEffect(() => {
     refreshHistory();
   }, [refreshHistory]);
+
+  const totalStorageBytes = useMemo(() => {
+    return historyItems.reduce((acc, item) => acc + (item.fileSizeBytes || 0), 0);
+  }, [historyItems]);
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return historyItems;
+    return historyItems.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        item.author.toLowerCase().includes(q) ||
+        (item.sourceUrl && item.sourceUrl.toLowerCase().includes(q))
+    );
+  }, [historyItems, searchQuery]);
 
   const handleDeleteItem = (item: HistoryItem) => {
     Alert.alert(
@@ -73,8 +89,8 @@ export default function HistoryScreen() {
 
   const handleClearAll = () => {
     Alert.alert(
-      'Clear Saved History',
-      'Choose which items to clear from ClipSave:',
+      'Clear Saved Library',
+      'Choose how you want to clear your saved items:',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -98,135 +114,199 @@ export default function HistoryScreen() {
 
   const renderHistoryItem = ({ item }: { item: HistoryItem }) => {
     return (
-      <Card variant="outlined" style={styles.itemCard}>
-        <View style={styles.cardRow}>
-          {/* Thumbnail / Media Icon */}
+      <View
+        style={[
+          styles.mediaRow,
+          {
+            backgroundColor: colors.surfaceContainerLowest || colors.surface,
+            borderColor: colors.outlineVariant || colors.surfaceBorder,
+          },
+        ]}
+      >
+        {/* 16:9 Cinematic Thumbnail Container */}
+        <View
+          style={[
+            styles.thumbnailWrapper,
+            { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated },
+          ]}
+        >
           {item.thumbnailUrl ? (
             <Image
               source={{ uri: item.thumbnailUrl }}
-              style={[
-                styles.thumbnail,
-                {
-                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
-                  borderColor: colors.outlineVariant || colors.surfaceBorder,
-                },
-              ]}
+              style={styles.thumbnailImage}
               resizeMode="cover"
             />
           ) : (
-            <View
-              style={[
-                styles.thumbnail,
-                styles.thumbnailPlaceholder,
-                {
-                  backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated,
-                  borderColor: colors.outlineVariant || colors.surfaceBorder,
-                },
-              ]}
-            >
-              <Ionicons name="videocam" size={26} color={colors.textMuted} />
+            <View style={styles.thumbnailPlaceholder}>
+              <Ionicons name="videocam" size={24} color={colors.textMuted} />
             </View>
           )}
 
-          {/* Video Metadata */}
-          <View style={styles.infoArea}>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary }]} numberOfLines={2}>
-              {item.title || 'Untitled Video'}
-            </Text>
-            <View style={styles.authorRow}>
-              <Ionicons name="person-outline" size={13} color={colors.textMuted} />
-              <Text style={[typography.bodySmall, { color: colors.textSecondary, marginLeft: 4 }]} numberOfLines={1}>
-                {item.author || 'Creator'}
+          {item.durationSeconds !== undefined && item.durationSeconds > 0 && (
+            <View style={styles.durationPill}>
+              <Text style={[typography.micro, { color: '#FFFFFF', fontSize: 10 }]}>
+                {Math.floor(item.durationSeconds / 60)}:
+                {String(Math.floor(item.durationSeconds % 60)).padStart(2, '0')}
               </Text>
             </View>
-
-            <View style={styles.metaRow}>
-              <Text style={[typography.labelMedium, { color: colors.textMuted }]}>
-                {formatBytes(item.fileSizeBytes)}
-              </Text>
-              <Text style={[typography.labelMedium, { color: colors.textMuted }]}>•</Text>
-              <Text style={[typography.labelMedium, { color: colors.textMuted }]}>
-                {formatDate(item.savedAt)}
-              </Text>
-            </View>
-
-            {!item.fileExists && (
-              <View style={[styles.missingBadge, { backgroundColor: colors.warningLight }]}>
-                <Ionicons name="warning-outline" size={13} color={colors.warning} />
-                <Text style={[typography.labelMedium, { color: colors.warning, marginLeft: 4 }]}>
-                  File moved or deleted
-                </Text>
-              </View>
-            )}
-          </View>
+          )}
         </View>
 
-        {/* Action Controls */}
-        <View style={styles.actionsRow}>
+        {/* Info Column */}
+        <View style={styles.infoCol}>
+          <Text style={[typography.titleSmall, { color: colors.textPrimary }]} numberOfLines={2}>
+            {item.title || 'Untitled Video'}
+          </Text>
+
+          <View style={styles.creatorMetaRow}>
+            <Text style={[typography.bodySmall, { color: colors.textSecondary }]} numberOfLines={1}>
+              {item.author || 'Creator'}
+            </Text>
+          </View>
+
+          <View style={styles.detailsRow}>
+            <Text style={[typography.labelMedium, { color: colors.textMuted }]}>
+              {formatBytes(item.fileSizeBytes)}
+            </Text>
+            <Text style={[typography.labelMedium, { color: colors.textMuted }]}>•</Text>
+            <Text style={[typography.labelMedium, { color: colors.textMuted }]}>
+              {formatDate(item.savedAt)}
+            </Text>
+          </View>
+
+          {!item.fileExists && (
+            <View style={[styles.missingPill, { backgroundColor: colors.warningLight }]}>
+              <Ionicons name="warning-outline" size={12} color={colors.warning} />
+              <Text style={[typography.micro, { color: colors.warning, marginLeft: 4 }]}>
+                File deleted from storage
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Action Controls Cluster */}
+        <View style={styles.actionCluster}>
           {item.fileExists ? (
-            <Button
-              title="Share / Send to Gallery"
-              icon={<Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />}
+            <Pressable
               onPress={() => shareSavedMedia(item.fileUri)}
-              variant="secondary"
-              style={styles.actionBtn}
+              android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+              style={[
+                styles.iconActionBtn,
+                { backgroundColor: colors.primaryContainer || colors.primaryLight },
+              ]}
+              accessibilityRole="button"
               accessibilityLabel={`Share or send ${item.title} to gallery`}
-            />
+            >
+              <Ionicons name="share-social" size={18} color={colors.primary} />
+            </Pressable>
           ) : (
-            <Button
-              title="Re-download"
-              icon={<Ionicons name="download-outline" size={16} color={colors.primary} />}
+            <Pressable
               onPress={() => router.push('/')}
-              variant="outline"
-              style={styles.actionBtn}
+              android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+              style={[styles.iconActionBtn, { backgroundColor: colors.surfaceContainerHigh || colors.surfaceElevated }]}
+              accessibilityRole="button"
               accessibilityLabel={`Re-download ${item.title}`}
-            />
+            >
+              <Ionicons name="download-outline" size={18} color={colors.primary} />
+            </Pressable>
           )}
 
           <Pressable
             onPress={() => handleDeleteItem(item)}
             android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
-            style={styles.deleteIconButton}
+            style={[styles.iconActionBtn, { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated }]}
             accessibilityRole="button"
             accessibilityLabel={`Delete options for ${item.title}`}
           >
-            <Ionicons name="trash-outline" size={20} color={colors.danger} />
+            <Ionicons name="trash-outline" size={18} color={colors.danger} />
           </Pressable>
         </View>
-      </Card>
+      </View>
     );
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <ScreenHeader
-        title="Saved History"
-        subtitle={`${historyItems.length} ${historyItems.length === 1 ? 'saved video' : 'saved videos'}`}
+        title="Saved Library"
+        subtitle={`${historyItems.length} videos • ${formatBytes(totalStorageBytes)}`}
         rightAction={
           historyItems.length > 0
             ? {
-                label: 'Clear All',
+                label: 'Clear',
                 icon: 'trash-outline',
                 destructive: true,
                 onPress: handleClearAll,
-                accessibilityLabel: 'Clear all history records or files',
+                accessibilityLabel: 'Clear history records or files',
               }
             : undefined
         }
       />
 
+      {/* Instant Search Bar */}
+      {historyItems.length > 0 && (
+        <View style={styles.searchBarWrapper}>
+          <View
+            style={[
+              styles.searchInputContainer,
+              {
+                backgroundColor: colors.surfaceContainerLow || colors.inputBackground,
+                borderColor: colors.outlineVariant || colors.surfaceBorder,
+              },
+            ]}
+          >
+            <Ionicons name="search-outline" size={18} color={colors.textMuted} style={styles.searchIcon} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.textPrimary }]}
+              placeholder="Search saved videos or creators..."
+              placeholderTextColor={colors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Search saved videos"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable
+                onPress={() => setSearchQuery('')}
+                android_ripple={{ color: colors.ripple, borderless: true, radius: 18 }}
+                style={styles.clearSearchBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search query"
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      )}
+
       {historyItems.length === 0 ? (
         <EmptyState
-          iconName="time-outline"
-          title="No Saved History"
-          description="Videos you resolve and download will be organized here for easy playback, sharing, and management."
+          iconName="film-outline"
+          title="Library is Empty"
+          description="Videos you resolve and download will be organized here with instant playback, sharing, and storage controls."
           actionTitle="Download a Video"
           actionIcon="arrow-down-circle"
           onAction={() => router.push('/(tabs)')}
         />
+      ) : filteredItems.length === 0 ? (
+        <View style={styles.noSearchResults}>
+          <Ionicons name="search-outline" size={40} color={colors.textMuted} />
+          <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: spacing.md }]}>
+            No videos match "{searchQuery}"
+          </Text>
+          <Button
+            title="Clear Search"
+            onPress={() => setSearchQuery('')}
+            variant="secondary"
+            size="sm"
+            style={{ marginTop: spacing.md }}
+          />
+        </View>
       ) : (
         <FlatList
-          data={historyItems}
+          data={filteredItems}
           keyExtractor={(item) => item.id}
           renderItem={renderHistoryItem}
           contentContainerStyle={styles.listContent}
@@ -243,66 +323,110 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  listContent: {
+  searchBarWrapper: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxxl,
-    gap: spacing.md,
+    paddingBottom: spacing.sm,
   },
-  itemCard: {
-    marginBottom: spacing.xs,
-  },
-  cardRow: {
+  searchInputContainer: {
     flexDirection: 'row',
-    gap: spacing.md,
-  },
-  thumbnail: {
-    width: 76,
-    height: 76,
-    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    borderRadius: borderRadius.full,
     borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    minHeight: 46,
   },
-  thumbnailPlaceholder: {
+  searchIcon: {
+    marginRight: spacing.xs,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: spacing.xs,
+  },
+  clearSearchBtn: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  infoArea: {
-    flex: 1,
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xxxl,
+    gap: spacing.sm,
   },
-  authorRow: {
+  mediaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  thumbnailWrapper: {
+    width: 86,
+    height: 56,
+    borderRadius: borderRadius.md,
+    overflow: 'hidden',
+    position: 'relative',
+    marginRight: spacing.md,
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbnailPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  durationPill: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: borderRadius.xs,
+  },
+  infoCol: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  creatorMetaRow: {
     marginTop: 2,
   },
-  metaRow: {
+  detailsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    marginTop: 4,
+    marginTop: 3,
   },
-  missingBadge: {
+  missingPill: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.xs + 2,
     paddingVertical: 2,
-    borderRadius: borderRadius.sm,
+    borderRadius: borderRadius.xs,
     alignSelf: 'flex-start',
-    marginTop: spacing.xs,
+    marginTop: 4,
   },
-  actionsRow: {
-    flexDirection: 'row',
+  actionCluster: {
+    flexDirection: 'column',
+    gap: spacing.xs,
     alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
   },
-  actionBtn: {
-    flex: 1,
-    minHeight: spacing.touchTargetMin,
-  },
-  deleteIconButton: {
-    width: spacing.touchTargetMin,
-    height: spacing.touchTargetMin,
+  iconActionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: borderRadius.full,
+  },
+  noSearchResults: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
   },
 });
