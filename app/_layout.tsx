@@ -1,0 +1,53 @@
+import { useEffect } from 'react';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ThemeProvider, useTheme } from '../src/theme/ThemeContext';
+import { loadQueueFromStorage } from '../src/storage/queueStore';
+import { cleanOrphanedTempFiles } from '../src/services/mediaManager';
+
+function RootNavigation() {
+  const { isDark, colors } = useTheme();
+
+  useEffect(() => {
+    loadQueueFromStorage();
+    cleanOrphanedTempFiles();
+  }, []);
+
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="preview"
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="about"
+          options={{
+            headerShown: false,
+          }}
+        />
+      </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <RootNavigation />
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
+}
