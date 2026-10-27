@@ -67,6 +67,7 @@ export interface AppSettings {
   maxConcurrentDownloads: number;
   useMockResolver: boolean;
   backendBaseUrl: string;
+  enableLaunchAnimation: boolean;
 }
 
 export interface ResolveError {

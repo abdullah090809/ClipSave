@@ -9,6 +9,7 @@ interface ThemeContextValue {
   isDark: boolean;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
+  isThemeReady: boolean;
 }
 
 const THEME_STORAGE_KEY = '@clipsave_theme_mode';
@@ -18,11 +19,13 @@ const ThemeContext = createContext<ThemeContextValue>({
   isDark: true,
   themeMode: 'system',
   setThemeMode: () => {},
+  isThemeReady: false,
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const systemColorScheme = useNativeColorScheme();
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
+  const [isThemeReady, setIsThemeReady] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(THEME_STORAGE_KEY)
@@ -31,7 +34,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setThemeModeState(saved);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        setIsThemeReady(true);
+      });
   }, []);
 
   const setThemeMode = useCallback((mode: ThemeMode) => {
@@ -47,8 +53,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const colors = isDark ? darkColors : lightColors;
 
   const value = useMemo(
-    () => ({ colors, isDark, themeMode, setThemeMode }),
-    [colors, isDark, themeMode, setThemeMode]
+    () => ({ colors, isDark, themeMode, setThemeMode, isThemeReady }),
+    [colors, isDark, themeMode, setThemeMode, isThemeReady]
   );
 
   return (

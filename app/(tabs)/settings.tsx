@@ -170,6 +170,20 @@ export default function SettingsScreen() {
               accessibilityLabel="Theme"
             />
           </View>
+          <Row
+            label="Launch animation"
+            description="Play a brief animation when ClipSave opens."
+            last
+            trailing={
+              <Switch
+                value={Boolean(settings.enableLaunchAnimation)}
+                onValueChange={(val) => updateSetting({ enableLaunchAnimation: val })}
+                trackColor={{ false: colors.outline, true: colors.primary }}
+                thumbColor="#FFFFFF"
+                accessibilityLabel="Toggle launch animation"
+              />
+            }
+          />
         </Group>
 
         <Group title="Connection">
