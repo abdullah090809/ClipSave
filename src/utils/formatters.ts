@@ -34,3 +34,19 @@ export function formatDate(isoDateString: string): string {
     return isoDateString;
   }
 }
+
+/** Compact date for library rows: "Oct 26", or "Oct 26, 2025" for other years. */
+export function formatShortDate(isoDateString: string, now: Date = new Date()): string {
+  try {
+    const d = new Date(isoDateString);
+    if (isNaN(d.getTime())) return '';
+    const sameYear = d.getFullYear() === now.getFullYear();
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      ...(sameYear ? {} : { year: 'numeric' }),
+    });
+  } catch {
+    return '';
+  }
+}

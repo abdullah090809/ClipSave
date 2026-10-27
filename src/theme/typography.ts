@@ -1,6 +1,6 @@
 import { TextStyle } from 'react-native';
 
-export const typography: Record<string, TextStyle> = {
+export const typography = {
   // Material 3 / Android Display & Headlines
   display: {
     fontSize: 28,
@@ -97,4 +97,4 @@ export const typography: Record<string, TextStyle> = {
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
-};
+} satisfies Record<string, TextStyle>;

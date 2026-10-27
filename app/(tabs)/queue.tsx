@@ -1,26 +1,14 @@
-import { useState, useEffect, memo, useCallback } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  Alert,
-  Pressable,
-  Platform,
-} from 'react-native';
+import { memo, useCallback, useMemo } from 'react';
+import { View, Text, SectionList, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/theme/ThemeContext';
-import { spacing, borderRadius, elevation } from '../../src/theme/spacing';
+import { spacing } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { Button } from '../../src/components/Button';
-import { ProgressBar } from '../../src/components/ProgressBar';
+import { IconButton } from '../../src/components/IconButton';
+import { TextButton } from '../../src/components/TextButton';
 import { EmptyState } from '../../src/components/EmptyState';
-import {
-  subscribeQueue,
-  clearTerminalJobs,
-} from '../../src/storage/queueStore';
+import { clearTerminalJobs } from '../../src/storage/queueStore';
 import {
   pauseDownload,
   resumeDownload,
@@ -28,419 +16,216 @@ import {
   retryDownload,
 } from '../../src/services/downloadEngine';
 import { shareSavedMedia } from '../../src/services/mediaManager';
+import { useQueueStructure, useJob } from '../../src/hooks/useQueue';
+import {
+  JobBucket,
+  jobBucket,
+  jobProgressDetail,
+  jobProgressFraction,
+  jobStatusLabel,
+} from '../../src/utils/jobDisplay';
 import { formatBytes } from '../../src/utils/formatters';
 import { DownloadJob } from '../../src/types';
 
-type QueueFilter = 'ALL' | 'ACTIVE' | 'COMPLETED' | 'FAILED';
+interface Section {
+  key: JobBucket;
+  title: string;
+  data: DownloadJob[];
+}
 
-// Memoized Active Download Row
-const ActiveJobRow = memo(({
+const SECTION_TITLES: Record<JobBucket, string> = {
+  active: 'In progress',
+  failed: 'Needs attention',
+  done: 'Completed',
+};
+const SECTION_ORDER: JobBucket[] = ['active', 'failed', 'done'];
+
+function Hairline() {
+  const { colors } = useTheme();
+  return <View style={[styles.hairline, { backgroundColor: colors.outlineVariant }]} />;
+}
+
+/**
+ * Active rows read live byte progress through useJob, so a progress tick
+ * re-renders only that row; the screen and the other rows stay untouched.
+ */
+const ActiveRow = memo(function ActiveRow({
   item,
   onCancel,
 }: {
   item: DownloadJob;
   onCancel: (job: DownloadJob) => void;
-}) => {
+}) {
   const { colors } = useTheme();
-  const isPaused = item.state === 'PAUSED';
-  const progressFraction =
-    item.totalBytes && item.totalBytes > 0
-      ? Math.min(item.bytesDownloaded / item.totalBytes, 1)
-      : undefined;
+  const job = useJob(item.id, item);
+  const paused = job.state === 'PAUSED';
+  const fraction = jobProgressFraction(job);
+  const tint = paused ? colors.warning : colors.primary;
 
   return (
-    <View
-      style={[
-        styles.activeRowCard,
-        {
-          backgroundColor: colors.surfaceContainerLow || colors.surface,
-          borderColor: isPaused ? colors.warning : colors.primary,
-        },
-        Platform.OS === 'android' ? elevation.level1 : {},
-      ]}
-    >
-      <View style={styles.activeRowHeader}>
-        <View style={styles.activeInfoCol}>
-          <View style={styles.activeStatusTag}>
-            <View
-              style={[
-                styles.pulseDot,
-                { backgroundColor: isPaused ? colors.warning : colors.primary },
-              ]}
-            />
-            <Text
-              style={[
-                typography.labelMedium,
-                { color: isPaused ? colors.warning : colors.primary, fontWeight: '700' },
-              ]}
-            >
-              {isPaused ? 'PAUSED' : item.state === 'FINALIZING' ? 'SAVING...' : 'DOWNLOADING'}
-            </Text>
-          </View>
-          <Text style={[typography.titleSmall, { color: colors.textPrimary, marginTop: 2 }]} numberOfLines={1}>
-            {item.media.title || 'TikTok Video'}
-          </Text>
-          <Text style={[typography.micro, { color: colors.textSecondary }]}>
-            {formatBytes(item.bytesDownloaded)}
-            {item.totalBytes ? ` / ${formatBytes(item.totalBytes)}` : ' (Streaming)'}
-          </Text>
-        </View>
-
-        {/* Circular Action Buttons */}
-        <View style={styles.activeActions}>
-          {isPaused ? (
-            <Pressable
-              onPress={() => resumeDownload(item.id)}
-              android_ripple={{ color: colors.ripple, borderless: true, radius: 22 }}
-              style={[styles.actionCircleBtn, { backgroundColor: colors.primary }]}
-              accessibilityRole="button"
-              accessibilityLabel="Resume download"
-            >
-              <Ionicons name="play" size={16} color="#FFFFFF" />
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => pauseDownload(item.id)}
-              android_ripple={{ color: colors.ripple, borderless: true, radius: 22 }}
-              style={[
-                styles.actionCircleBtn,
-                { backgroundColor: colors.surfaceContainerHigh || colors.surfaceElevated },
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Pause download"
-            >
-              <Ionicons name="pause" size={16} color={colors.textPrimary} />
-            </Pressable>
-          )}
-
-          <Pressable
-            onPress={() => onCancel(item)}
-            android_ripple={{ color: colors.ripple, borderless: true, radius: 22 }}
-            style={[styles.actionCircleBtn, { backgroundColor: colors.dangerLight }]}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel download"
-          >
-            <Ionicons name="close" size={16} color={colors.danger} />
-          </Pressable>
+    <View style={styles.row}>
+      <View
+        style={styles.rowMain}
+        accessible
+        accessibilityLabel={`${job.media.title}, ${jobStatusLabel(job)}, ${jobProgressDetail(job)}`}
+      >
+        <Text style={[typography.bodyMedium, { color: colors.textPrimary }]} numberOfLines={1}>
+          {job.media.title || 'TikTok video'}
+        </Text>
+        <Text style={[typography.bodySmall, { color: colors.textSecondary }]} numberOfLines={1}>
+          <Text style={{ color: tint, fontWeight: '600' }}>{jobStatusLabel(job)}</Text>
+          {'  ·  '}
+          {jobProgressDetail(job)}
+        </Text>
+        <View style={[styles.track, { backgroundColor: colors.outlineVariant }]}>
+          <View
+            style={[
+              styles.fill,
+              { backgroundColor: tint, width: `${Math.round((fraction ?? 0.08) * 100)}%` },
+              fraction === undefined && { opacity: 0.5 },
+            ]}
+          />
         </View>
       </View>
-
-      {/* Progress Bar */}
-      <View style={{ marginTop: 8 }}>
-        <ProgressBar
-          progress={progressFraction}
-          showPercentage={item.totalBytes !== undefined}
-        />
-      </View>
-    </View>
-  );
-});
-ActiveJobRow.displayName = 'ActiveJobRow';
-
-// Memoized Completed Download Row
-const CompletedJobRow = memo(({ item }: { item: DownloadJob }) => {
-  const { colors } = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.completedRow,
-        {
-          backgroundColor: colors.surfaceContainerLowest || colors.surface,
-          borderColor: colors.outlineVariant || colors.surfaceBorder,
-        },
-      ]}
-    >
-      <View style={[styles.completedIconWrapper, { backgroundColor: colors.successLight }]}>
-        <Ionicons name="checkmark" size={18} color={colors.success} />
-      </View>
-
-      <View style={styles.completedInfoCol}>
-        <Text style={[typography.titleSmall, { color: colors.textPrimary }]} numberOfLines={1}>
-          {item.media.title || 'Saved Video'}
-        </Text>
-        <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
-          {formatBytes(item.bytesDownloaded)} • {item.media.author || 'Downloaded'}
-        </Text>
-      </View>
-
-      {item.finalFileUri && (
-        <Pressable
-          onPress={() => shareSavedMedia(item.finalFileUri!)}
-          android_ripple={{ color: colors.ripple, borderless: false }}
-          style={[
-            styles.sharePillBtn,
-            { backgroundColor: colors.primaryContainer || colors.primaryLight },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`Share or send ${item.media.title} to gallery`}
-        >
-          <Ionicons name="share-social-outline" size={14} color={colors.primary} />
-          <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>
-            Share
-          </Text>
-        </Pressable>
+      {paused ? (
+        <IconButton icon="play" label="Resume download" color={colors.primary} onPress={() => resumeDownload(job.id)} />
+      ) : (
+        <IconButton icon="pause" label="Pause download" onPress={() => pauseDownload(job.id)} />
       )}
+      <IconButton icon="close" label="Cancel download" onPress={() => onCancel(job)} />
     </View>
   );
 });
-CompletedJobRow.displayName = 'CompletedJobRow';
 
-// Memoized Failed Download Row
-const FailedJobRow = memo(({ item }: { item: DownloadJob }) => {
+const FailedRow = memo(function FailedRow({ item }: { item: DownloadJob }) {
   const { colors } = useTheme();
-
   return (
-    <View
-      style={[
-        styles.failedRow,
-        {
-          backgroundColor: colors.dangerLight,
-          borderColor: colors.danger,
-        },
-      ]}
-    >
-      <Ionicons name="alert-circle" size={20} color={colors.danger} style={{ marginTop: 1 }} />
-      <View style={styles.failedInfoCol}>
-        <Text style={[typography.titleSmall, { color: colors.danger }]} numberOfLines={1}>
-          {item.media.title || 'Download Failed'}
+    <View style={styles.row}>
+      <View style={styles.rowMain}>
+        <Text style={[typography.bodyMedium, { color: colors.textPrimary }]} numberOfLines={1}>
+          {item.media.title || 'TikTok video'}
         </Text>
-        <Text style={[typography.micro, { color: colors.danger, marginTop: 1 }]}>
-          {item.errorMessage || 'Network or media server error.'}
+        <Text style={[typography.bodySmall, { color: colors.danger }]} numberOfLines={2}>
+          {jobStatusLabel(item)}
+          {item.errorMessage ? ` · ${item.errorMessage}` : ''}
         </Text>
       </View>
-
-      <Button
+      <TextButton
         title="Retry"
-        icon={<Ionicons name="refresh" size={13} color="#FFFFFF" />}
         onPress={() => retryDownload(item.id)}
-        variant="danger"
-        size="sm"
-        style={styles.retryBtn}
         accessibilityLabel={`Retry download for ${item.media.title}`}
       />
     </View>
   );
 });
-FailedJobRow.displayName = 'FailedJobRow';
+
+const DoneRow = memo(function DoneRow({ item }: { item: DownloadJob }) {
+  const { colors } = useTheme();
+  const uri = item.finalFileUri;
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowMain}>
+        <Text style={[typography.bodyMedium, { color: colors.textPrimary }]} numberOfLines={1}>
+          {item.media.title || 'Saved video'}
+        </Text>
+        <Text style={[typography.bodySmall, { color: colors.textSecondary }]} numberOfLines={1}>
+          {formatBytes(item.bytesDownloaded)}
+          {item.statusMessage ? ` · ${item.statusMessage}` : ''}
+        </Text>
+      </View>
+      {uri ? (
+        <IconButton
+          icon="share-outline"
+          label={`Share ${item.media.title}`}
+          onPress={() => shareSavedMedia(uri)}
+        />
+      ) : null}
+    </View>
+  );
+});
 
 export default function QueueScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [jobs, setJobs] = useState<DownloadJob[]>([]);
-  const [activeFilter, setActiveFilter] = useState<QueueFilter>('ALL');
-
-  useEffect(() => {
-    return subscribeQueue((updated) => setJobs(updated));
-  }, []);
+  const jobs = useQueueStructure();
 
   const handleCancel = useCallback((job: DownloadJob) => {
     Alert.alert(
-      'Cancel Download',
-      'Are you sure you want to cancel this download? Any partial temporary stream files will be safely cleared.',
+      'Cancel this download?',
+      'The partial file will be removed. You can start it again from Home.',
       [
-        { text: 'Keep Downloading', style: 'cancel' },
-        {
-          text: 'Cancel Download',
-          style: 'destructive',
-          onPress: () => cancelDownload(job.id),
-        },
+        { text: 'Keep downloading', style: 'cancel' },
+        { text: 'Cancel download', style: 'destructive', onPress: () => cancelDownload(job.id) },
       ]
     );
   }, []);
 
-  const activeCount = jobs.filter(
-    (j) => j.state === 'DOWNLOADING' || j.state === 'FINALIZING' || j.state === 'PAUSED' || j.state === 'QUEUED'
-  ).length;
-  const completedCount = jobs.filter((j) => j.state === 'COMPLETED').length;
-  const failedCount = jobs.filter((j) => j.state === 'FAILED' || j.state === 'CANCELLED').length;
+  const sections = useMemo<Section[]>(() => {
+    const buckets: Record<JobBucket, DownloadJob[]> = { active: [], failed: [], done: [] };
+    for (const j of jobs) buckets[jobBucket(j)].push(j);
+    return SECTION_ORDER.filter((k) => buckets[k].length > 0).map((k) => ({
+      key: k,
+      title: SECTION_TITLES[k],
+      data: buckets[k],
+    }));
+  }, [jobs]);
 
-  const filteredJobs = jobs.filter((j) => {
-    switch (activeFilter) {
-      case 'ACTIVE':
-        return j.state === 'DOWNLOADING' || j.state === 'FINALIZING' || j.state === 'PAUSED' || j.state === 'QUEUED';
-      case 'COMPLETED':
-        return j.state === 'COMPLETED';
-      case 'FAILED':
-        return j.state === 'FAILED' || j.state === 'CANCELLED';
-      case 'ALL':
-      default:
-        return true;
-    }
-  });
+  const activeCount = sections.find((s) => s.key === 'active')?.data.length ?? 0;
 
-  const hasTerminalJobs = jobs.some(
-    (j) => j.state === 'COMPLETED' || j.state === 'FAILED' || j.state === 'CANCELLED'
+  const renderItem = useCallback(
+    ({ item, section }: { item: DownloadJob; section: Section }) =>
+      section.key === 'active' ? (
+        <ActiveRow item={item} onCancel={handleCancel} />
+      ) : section.key === 'failed' ? (
+        <FailedRow item={item} />
+      ) : (
+        <DoneRow item={item} />
+      ),
+    [handleCancel]
   );
 
-  const renderQueueItem = useCallback(
-    ({ item }: { item: DownloadJob }) => {
-      if (
-        item.state === 'DOWNLOADING' ||
-        item.state === 'PAUSED' ||
-        item.state === 'FINALIZING' ||
-        item.state === 'QUEUED'
-      ) {
-        return <ActiveJobRow item={item} onCancel={handleCancel} />;
-      }
-      if (item.state === 'COMPLETED') {
-        return <CompletedJobRow item={item} />;
-      }
-      return <FailedJobRow item={item} />;
-    },
-    [handleCancel]
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: Section }) => (
+      <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+        <Text style={[typography.titleSmall, { color: colors.textSecondary }]}>
+          {section.title} · {section.data.length}
+        </Text>
+        {section.key === 'done' ? (
+          <TextButton title="Clear finished" onPress={clearTerminalJobs} tone="neutral" />
+        ) : null}
+      </View>
+    ),
+    [colors.background, colors.textSecondary]
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* Download Manager Header */}
-      <View style={styles.headerToolbar}>
-        <View>
-          <Text style={[typography.headlineMedium, { color: colors.textPrimary, letterSpacing: -0.3 }]}>
-            Downloads
+      <View style={styles.header}>
+        <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Queue</Text>
+        {activeCount > 0 ? (
+          <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+            {activeCount} in progress
           </Text>
-          <Text style={[typography.micro, { color: colors.textMuted }]}>
-            {activeCount > 0 ? `${activeCount} active stream${activeCount === 1 ? '' : 's'}` : 'All downloads idle'}
-            {completedCount > 0 ? ` • ${completedCount} completed` : ''}
-          </Text>
-        </View>
-
-        {hasTerminalJobs && (
-          <Pressable
-            onPress={clearTerminalJobs}
-            android_ripple={{ color: colors.ripple, borderless: false }}
-            style={[styles.clearBtn, { backgroundColor: colors.surfaceContainerLow || colors.surfaceElevated }]}
-            accessibilityRole="button"
-            accessibilityLabel="Clear finished downloads"
-          >
-            <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
-            <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 4 }]}>
-              Clear Finished
-            </Text>
-          </Pressable>
-        )}
+        ) : null}
       </View>
 
-      {/* Segmented Filter Pills */}
-      {jobs.length > 0 && (
-        <View style={styles.filterBar}>
-          <Pressable
-            onPress={() => setActiveFilter('ALL')}
-            style={[
-              styles.filterPill,
-              activeFilter === 'ALL' && [
-                styles.activeFilterPill,
-                { backgroundColor: colors.primaryContainer || colors.primaryLight, borderColor: colors.primary },
-              ],
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`Show all downloads, count ${jobs.length}`}
-          >
-            <Text
-              style={[
-                typography.labelMedium,
-                { color: activeFilter === 'ALL' ? colors.primary : colors.textMuted },
-              ]}
-            >
-              All ({jobs.length})
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setActiveFilter('ACTIVE')}
-            style={[
-              styles.filterPill,
-              activeFilter === 'ACTIVE' && [
-                styles.activeFilterPill,
-                { backgroundColor: colors.primaryContainer || colors.primaryLight, borderColor: colors.primary },
-              ],
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`Show active downloads, count ${activeCount}`}
-          >
-            <Text
-              style={[
-                typography.labelMedium,
-                { color: activeFilter === 'ACTIVE' ? colors.primary : colors.textMuted },
-              ]}
-            >
-              Active ({activeCount})
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setActiveFilter('COMPLETED')}
-            style={[
-              styles.filterPill,
-              activeFilter === 'COMPLETED' && [
-                styles.activeFilterPill,
-                { backgroundColor: colors.primaryContainer || colors.primaryLight, borderColor: colors.primary },
-              ],
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`Show completed downloads, count ${completedCount}`}
-          >
-            <Text
-              style={[
-                typography.labelMedium,
-                { color: activeFilter === 'COMPLETED' ? colors.primary : colors.textMuted },
-              ]}
-            >
-              Done ({completedCount})
-            </Text>
-          </Pressable>
-
-          {failedCount > 0 && (
-            <Pressable
-              onPress={() => setActiveFilter('FAILED')}
-              style={[
-                styles.filterPill,
-                activeFilter === 'FAILED' && [
-                  styles.activeFilterPill,
-                  { backgroundColor: colors.dangerLight, borderColor: colors.danger },
-                ],
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={`Show failed downloads, count ${failedCount}`}
-            >
-              <Text
-                style={[
-                  typography.labelMedium,
-                  { color: activeFilter === 'FAILED' ? colors.danger : colors.textMuted },
-                ]}
-              >
-                Failed ({failedCount})
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-
-      {/* Virtualized Queue List */}
-      <FlatList
-        data={filteredJobs}
+      <SectionList
+        sections={sections}
         keyExtractor={(item) => item.id}
-        renderItem={renderQueueItem}
+        renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
+        ItemSeparatorComponent={Hairline}
+        stickySectionHeadersEnabled={false}
+        initialNumToRender={12}
+        windowSize={7}
         contentContainerStyle={styles.listContent}
-        initialNumToRender={8}
-        maxToRenderPerBatch={10}
-        windowSize={5}
-        removeClippedSubviews={Platform.OS === 'android'}
         ListEmptyComponent={
           <EmptyState
-            iconName="file-tray-outline"
-            title={
-              activeFilter === 'ALL'
-                ? 'Queue is empty'
-                : `No ${activeFilter.toLowerCase()} downloads`
-            }
-            description={
-              activeFilter === 'ALL'
-                ? 'When you paste a link and confirm download, tasks appear here.'
-                : `There are currently no items matching the ${activeFilter.toLowerCase()} filter.`
-            }
-            actionTitle={activeFilter === 'ALL' ? 'Download a Video' : undefined}
-            onAction={activeFilter === 'ALL' ? () => router.push('/') : undefined}
+            iconName="swap-vertical-outline"
+            title="No downloads yet"
+            description="Paste a TikTok link on Home and confirm the preview. Active downloads show up here."
+            actionTitle="Go to Home"
+            onAction={() => router.navigate('/')}
           />
         }
       />
@@ -449,123 +234,34 @@ export default function QueueScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1 },
+  header: {
+    height: 56,
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  headerToolbar: {
-    paddingHorizontal: spacing.md,
+  listContent: { paddingBottom: spacing.xxxl },
+  sectionHeader: {
+    minHeight: 48,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.xs,
+    paddingVertical: spacing.sm,
+    minHeight: 64,
   },
-  clearBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: borderRadius.md,
-  },
-  filterBar: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    gap: spacing.xs,
-  },
-  filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  activeFilterPill: {
-    borderWidth: 1,
-  },
-  listContent: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xxl,
-  },
-  activeRowCard: {
-    padding: spacing.md,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1.5,
-    marginBottom: spacing.sm,
-  },
-  activeRowHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  activeInfoCol: {
-    flex: 1,
-    marginRight: spacing.sm,
-  },
-  activeStatusTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  activeActions: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  actionCircleBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  completedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm + 2,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    marginBottom: spacing.xs + 2,
-  },
-  completedIconWrapper: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  completedInfoCol: {
-    flex: 1,
-    marginRight: spacing.sm,
-  },
-  sharePillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    height: 32,
-    borderRadius: borderRadius.full,
-  },
-  failedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm + 2,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    marginBottom: spacing.xs + 2,
-  },
-  failedInfoCol: {
-    flex: 1,
-    marginHorizontal: spacing.sm,
-  },
-  retryBtn: {
-    height: 32,
-    paddingHorizontal: 10,
-    borderRadius: borderRadius.sm,
-  },
+  rowMain: { flex: 1, paddingRight: spacing.sm },
+  track: { height: 3, borderRadius: 2, marginTop: spacing.sm, overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 2 },
+  hairline: { height: StyleSheet.hairlineWidth, marginLeft: spacing.lg },
 });

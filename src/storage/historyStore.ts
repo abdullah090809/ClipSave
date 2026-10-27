@@ -86,3 +86,24 @@ export const clearHistoryAndFiles = async (): Promise<void> => {
   }
   await AsyncStorage.removeItem(HISTORY_KEY);
 };
+
+/**
+ * Checks whether the given items' files still exist. Callers pass only the
+ * rows that are on screen so the filesystem is never scanned in bulk.
+ */
+export const checkHistoryFilesExist = async (
+  items: Pick<HistoryItem, 'id' | 'fileUri'>[]
+): Promise<Record<string, boolean>> => {
+  const result: Record<string, boolean> = {};
+  await Promise.all(
+    items.map(async (item) => {
+      try {
+        const info = await FileSystem.getInfoAsync(item.fileUri);
+        result[item.id] = info.exists;
+      } catch {
+        result[item.id] = false;
+      }
+    })
+  );
+  return result;
+};

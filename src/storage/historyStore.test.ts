@@ -49,3 +49,23 @@ describe('historyStore', () => {
     expect(items.length).toBe(0);
   });
 });
+
+describe('checkHistoryFilesExist', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const FileSystem = require('expo-file-system/legacy');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { checkHistoryFilesExist } = require('./historyStore');
+
+  test('reports existing, missing and throwing files individually', async () => {
+    FileSystem.getInfoAsync.mockImplementation(async (uri: string) => {
+      if (uri.includes('throws')) throw new Error('io');
+      return { exists: !uri.includes('missing'), uri };
+    });
+    const result = await checkHistoryFilesExist([
+      { id: 'a', fileUri: 'file:///ok.mp4' },
+      { id: 'b', fileUri: 'file:///missing.mp4' },
+      { id: 'c', fileUri: 'file:///throws.mp4' },
+    ]);
+    expect(result).toEqual({ a: true, b: false, c: false });
+  });
+});

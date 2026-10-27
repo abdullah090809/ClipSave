@@ -37,3 +37,19 @@ describe('formatters', () => {
     });
   });
 });
+
+describe('formatShortDate', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { formatShortDate } = require('./formatters');
+  const now = new Date('2026-10-27T12:00:00Z');
+
+  test('omits the year within the current year', () => {
+    expect(formatShortDate('2026-03-05T10:00:00Z', now)).not.toMatch(/2026/);
+  });
+  test('includes the year for other years', () => {
+    expect(formatShortDate('2025-03-05T10:00:00Z', now)).toMatch(/2025/);
+  });
+  test('returns empty string for invalid input', () => {
+    expect(formatShortDate('not-a-date', now)).toBe('');
+  });
+});

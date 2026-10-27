@@ -3,94 +3,62 @@ node_modules/
 .pnp
 .pnp.js
 
-# Expo & Metro
+# Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
-.metro-health-check*
-_expo/
 
-# EAS Build
-.eas/
-
-# Android & Native Build Outputs
-/android
-/ios
-*.apk
-*.aab
-*.dex
-build/
-.gradle/
-local.properties
+# Native
 .kotlin/
 *.orig.*
-
-# Keystores & Signing Keys
 *.jks
-*.keystore
 *.p8
 *.p12
 *.key
-*.pem
 *.mobileprovision
+
+# Metro
+.metro-health-check*
 
 # Debug & Logs
 npm-debug.*
 yarn-debug.*
 yarn-error.*
-pnpm-debug.*
 *.log
 
-# OS & Temp
+# OS
 .DS_Store
 Thumbs.db
-downloads/
-temp/
-tmp/
+*.pem
 
-# Environment Variables
+# Local env files
 .env
 .env*.local
-.env.production
-.env.staging
 !.env.example
-
-# IDE & Editors
-.idea/
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-*.swp
-*.swo
 
 # TypeScript
 *.tsbuildinfo
 
-# Python Backend & Virtual Environments
+# Generated native folders
+/ios
+/android
+
+# Python backend
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
 .coverage
 htmlcov/
-.mypy_cache/
-.ruff_cache/
 .venv/
 venv/
 ENV/
-env/
 backend/.venv/
 backend/__pycache__/
-backend/*/__pycache__/
-backend/*/*/__pycache__/
 backend/.pytest_cache/
-backend/.coverage
-backend/htmlcov/
-backend/downloads/
-backend/temp/
 
 # Test coverage & outputs
 coverage/
+downloads/
+temp/
