@@ -31,31 +31,34 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        freezeOnBlur: true,
+        freezeOnBlur: false,
         tabBarStyle: {
           backgroundColor: colors.tabBarBackground,
           borderTopColor: colors.outlineVariant,
           borderTopWidth: 1,
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 6,
           elevation: 0,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarAccessibilityLabel: 'Home tab, paste a link to download',
-          tabBarIcon: icon('home', 'home-outline'),
+          title: 'Download',
+          tabBarAccessibilityLabel: 'Download hub, paste or detect a link',
+          tabBarIcon: icon('download', 'download-outline'),
         }}
       />
       <Tabs.Screen
         name="queue"
         options={{
-          title: 'Queue',
-          tabBarAccessibilityLabel: `Download queue tab, ${activeCount} active`,
+          title: 'Activity',
+          tabBarAccessibilityLabel: `Activity and transfer queue, ${activeCount} active`,
           tabBarIcon: icon('swap-vertical', 'swap-vertical-outline'),
           ...(activeCount > 0
             ? {
@@ -68,16 +71,16 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'History',
-          tabBarAccessibilityLabel: 'Saved video history tab',
-          tabBarIcon: icon('albums', 'albums-outline'),
+          title: 'Library',
+          tabBarAccessibilityLabel: 'Saved video library',
+          tabBarIcon: icon('film', 'film-outline'),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
-          tabBarAccessibilityLabel: 'Settings tab',
+          tabBarAccessibilityLabel: 'Settings and configuration',
           tabBarIcon: icon('settings', 'settings-outline'),
         }}
       />

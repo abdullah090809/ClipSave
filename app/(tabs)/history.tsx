@@ -1,33 +1,25 @@
 import { useState, useCallback, useMemo, useRef, memo } from 'react';
-import { View, Text, FlatList, StyleSheet, Alert, Image, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Alert, Image, TextInput, Pressable, Dimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { EmptyState } from '../../src/components/EmptyState';
-import { IconButton } from '../../src/components/IconButton';
 import { BottomSheetMenu, SheetAction } from '../../src/components/BottomSheetMenu';
 import {
   getHistory,
   removeHistoryEntryOnly,
   deleteHistoryEntryAndFile,
-  clearHistoryEntriesOnly,
-  clearHistoryAndFiles,
   checkHistoryFilesExist,
 } from '../../src/storage/historyStore';
 import { shareSavedMedia } from '../../src/services/mediaManager';
-import { formatBytes, formatShortDate } from '../../src/utils/formatters';
+import { formatBytes, formatDuration, formatShortDate } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
 
-const ROW_HEIGHT = 84;
-const THUMB_W = 44;
-const THUMB_H = 58;
 const VERIFY_BATCH = 12;
-
-const sameList = (a: HistoryItem[], b: HistoryItem[]) =>
-  a.length === b.length && a.every((it, i) => it.id === b[i]!.id && it.fileUri === b[i]!.fileUri);
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const GRID_ITEM_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm) / 2;
 
 interface RowProps {
   item: HistoryItem;
@@ -37,54 +29,151 @@ interface RowProps {
   onMore: (item: HistoryItem) => void;
 }
 
-const LibraryRow = memo(function LibraryRow({ item, missing, onShare, onRedownload, onMore }: RowProps) {
+/** Grid Item: Visual TikTok-style 2-column card */
+const GridItem = memo(function GridItem({ item, missing, onShare, onRedownload, onMore }: RowProps) {
   const { colors } = useTheme();
-  const meta = [formatShortDate(item.savedAt), formatBytes(item.fileSizeBytes), item.author]
+
+  return (
+    <View
+      style={[
+        styles.gridCard,
+        {
+          width: GRID_ITEM_WIDTH,
+          backgroundColor: colors.surfaceContainer,
+          borderColor: missing ? colors.warning : colors.outlineVariant,
+        },
+      ]}
+    >
+      <View style={[styles.gridThumbContainer, { backgroundColor: colors.surface }]}>
+        {item.thumbnailUrl ? (
+          <Image source={{ uri: item.thumbnailUrl }} style={styles.gridThumbImage} resizeMode="cover" />
+        ) : (
+          <Ionicons name="film-outline" size={32} color={colors.textMuted} />
+        )}
+
+        {item.durationSeconds ? (
+          <View style={styles.gridDurationPill}>
+            <Text style={styles.gridDurationText}>{formatDuration(item.durationSeconds)}</Text>
+          </View>
+        ) : null}
+
+        {missing ? (
+          <View style={[styles.gridMissingBadge, { backgroundColor: colors.warning }]}>
+            <Text style={styles.gridMissingText}>File Missing</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.gridMetaContainer}>
+        <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]} numberOfLines={2}>
+          {item.title || 'Saved Video'}
+        </Text>
+        <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]} numberOfLines={1}>
+          {formatBytes(item.fileSizeBytes)} {item.author ? `· @${item.author}` : ''}
+        </Text>
+
+        <View style={styles.gridActionRow}>
+          {missing ? (
+            <Pressable
+              onPress={() => onRedownload(item)}
+              style={[styles.gridActionPill, { backgroundColor: colors.primaryContainer }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Re-download ${item.title}`}
+            >
+              <Ionicons name="download-outline" size={14} color={colors.primary} />
+              <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>Re-fetch</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => onShare(item)}
+              style={[styles.gridActionPill, { backgroundColor: colors.primaryLight }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Share ${item.title}`}
+            >
+              <Ionicons name="share-outline" size={14} color={colors.primary} />
+              <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>Share</Text>
+            </Pressable>
+          )}
+
+          <Pressable
+            onPress={() => onMore(item)}
+            style={styles.gridMoreBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`More options for ${item.title}`}
+          >
+            <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+});
+
+/** List Item: Detailed row view */
+const ListItem = memo(function ListItem({ item, missing, onShare, onRedownload, onMore }: RowProps) {
+  const { colors } = useTheme();
+  const meta = [formatShortDate(item.savedAt), formatBytes(item.fileSizeBytes), item.author ? `@${item.author}` : '']
     .filter(Boolean)
     .join(' · ');
 
   return (
-    <View style={[styles.row, { borderBottomColor: colors.outlineVariant }]}>
-      <View style={[styles.thumb, { backgroundColor: colors.surfaceContainer }]}>
+    <View style={[styles.listRow, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+      <View style={[styles.listThumb, { backgroundColor: colors.surface }]}>
         {item.thumbnailUrl ? (
-          <Image source={{ uri: item.thumbnailUrl }} style={styles.thumbImg} resizeMode="cover" />
+          <Image source={{ uri: item.thumbnailUrl }} style={styles.listThumbImg} resizeMode="cover" />
         ) : (
-          <Ionicons name="videocam-outline" size={20} color={colors.textMuted} />
+          <Ionicons name="videocam-outline" size={22} color={colors.textMuted} />
         )}
+        {item.durationSeconds ? (
+          <View style={styles.listDurationBadge}>
+            <Text style={styles.durationText}>{formatDuration(item.durationSeconds)}</Text>
+          </View>
+        ) : null}
       </View>
 
-      <View style={styles.rowMain}>
-        <Text style={[typography.bodyMedium, { color: colors.textPrimary }]} numberOfLines={2}>
-          {item.title || 'Saved video'}
+      <View style={styles.listMeta}>
+        <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]} numberOfLines={2}>
+          {item.title || 'Saved Video'}
         </Text>
         <Text
-          style={[typography.bodySmall, { color: missing ? colors.warning : colors.textSecondary }]}
+          style={[typography.bodySmall, { color: missing ? colors.warning : colors.textSecondary, marginTop: 2 }]}
           numberOfLines={1}
         >
-          {missing ? 'File not found on this device' : meta}
+          {missing ? 'File moved or deleted from storage' : meta}
         </Text>
       </View>
 
-      {missing ? (
-        <IconButton
-          icon="download-outline"
-          label={`Re-download ${item.title}`}
-          color={colors.primary}
-          onPress={() => onRedownload(item)}
-        />
-      ) : (
-        <IconButton
-          icon="share-outline"
-          label={`Share ${item.title}`}
-          color={colors.primary}
-          onPress={() => onShare(item)}
-        />
-      )}
-      <IconButton
-        icon="ellipsis-vertical"
-        label={`More options for ${item.title}`}
-        onPress={() => onMore(item)}
-      />
+      <View style={styles.listActions}>
+        {missing ? (
+          <Pressable
+            onPress={() => onRedownload(item)}
+            style={[styles.iconCircle, { backgroundColor: colors.primaryContainer }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Re-download ${item.title}`}
+          >
+            <Ionicons name="download-outline" size={16} color={colors.primary} />
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => onShare(item)}
+            style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Share ${item.title}`}
+          >
+            <Ionicons name="share-outline" size={16} color={colors.primary} />
+          </Pressable>
+        )}
+
+        <Pressable
+          onPress={() => onMore(item)}
+          style={[styles.iconCircle, { backgroundColor: colors.surface, marginLeft: spacing.xs }]}
+          accessibilityRole="button"
+          accessibilityLabel={`More options for ${item.title}`}
+        >
+          <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
+        </Pressable>
+      </View>
     </View>
   );
 });
@@ -93,292 +182,533 @@ export default function HistoryScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const [items, setItems] = useState<HistoryItem[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [filterMode, setFilterMode] = useState<'all' | 'available' | 'missing'>('all');
   const [missing, setMissing] = useState<Record<string, boolean>>({});
   const [menuItem, setMenuItem] = useState<HistoryItem | null>(null);
-  const [libraryMenu, setLibraryMenu] = useState(false);
 
-  // Files are verified lazily, only for rows that scroll into view, and only once per visit.
-  const checked = useRef(new Set<string>());
-  const itemsRef = useRef<HistoryItem[]>([]);
-  itemsRef.current = items;
+  const verifiedRef = useRef(new Set<string>());
 
-  const verify = useCallback(async (candidates: HistoryItem[]) => {
-    const todo = candidates.filter((c) => !checked.current.has(c.id)).slice(0, VERIFY_BATCH);
-    if (todo.length === 0) return;
-    todo.forEach((t) => checked.current.add(t.id));
-    const result = await checkHistoryFilesExist(todo);
-    setMissing((prev) => {
-      const next = { ...prev };
-      for (const t of todo) next[t.id] = result[t.id] === false;
-      return next;
-    });
-  }, []);
-
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { item: unknown }[] }) => {
-    verify(viewableItems.map((v) => v.item as HistoryItem));
-  }).current;
-
-  const refresh = useCallback(async () => {
+  const reload = useCallback(async () => {
     const list = await getHistory(false);
-    setItems((prev) => (sameList(prev, list) ? prev : list));
-    setLoaded(true);
+    setItems(list);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      checked.current.clear();
-      refresh();
-    }, [refresh])
+      reload();
+    }, [reload])
   );
 
-  const totalBytes = useMemo(() => items.reduce((n, it) => n + (it.fileSizeBytes || 0), 0), [items]);
+  // Lazy batch file-existence verification
+  const verifySlice = useCallback(
+    async (batch: HistoryItem[]) => {
+      const needed = batch.filter((it) => !verifiedRef.current.has(it.id));
+      if (needed.length === 0) return;
+      for (const it of needed) verifiedRef.current.add(it.id);
 
-  const visible = useMemo(() => {
+      const existsMap = await checkHistoryFilesExist(needed);
+      setMissing((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [id, exists] of Object.entries(existsMap)) {
+          const isMiss = !exists;
+          if (next[id] !== isMiss) {
+            next[id] = isMiss;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    },
+    []
+  );
+
+  // Filter items
+  const filtered = useMemo(() => {
+    let result = items;
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (it) =>
-        it.title.toLowerCase().includes(q) ||
-        it.author.toLowerCase().includes(q) ||
-        (it.sourceUrl ? it.sourceUrl.toLowerCase().includes(q) : false)
-    );
-  }, [items, query]);
+    if (q) {
+      result = result.filter(
+        (it) => it.title.toLowerCase().includes(q) || (it.author && it.author.toLowerCase().includes(q))
+      );
+    }
+    if (filterMode === 'available') {
+      result = result.filter((it) => !missing[it.id]);
+    } else if (filterMode === 'missing') {
+      result = result.filter((it) => Boolean(missing[it.id]));
+    }
+    return result;
+  }, [items, query, filterMode, missing]);
+
+  // Initial slice verify
+  useFocusEffect(
+    useCallback(() => {
+      if (items.length > 0) {
+        verifySlice(items.slice(0, VERIFY_BATCH));
+      }
+    }, [items, verifySlice])
+  );
+
+  const totalBytes = useMemo(() => {
+    return items.reduce((acc, it) => acc + (it.fileSizeBytes || 0), 0);
+  }, [items]);
 
   const handleShare = useCallback((item: HistoryItem) => {
     shareSavedMedia(item.fileUri);
   }, []);
 
-  // Re-download: send the saved source link back to Home so the normal resolve/preview flow runs.
   const handleRedownload = useCallback(
     (item: HistoryItem) => {
-      router.navigate({ pathname: '/', params: { prefill: item.sourceUrl, ts: String(Date.now()) } });
+      router.push({
+        pathname: '/(tabs)',
+        params: { prefill: item.sourceUrl, ts: String(Date.now()) },
+      });
     },
     [router]
   );
 
-  const removeRecord = useCallback(async (item: HistoryItem) => {
-    setItems(await removeHistoryEntryOnly(item.id));
+  const handleMore = useCallback((item: HistoryItem) => {
+    setMenuItem(item);
   }, []);
 
-  const confirmDeleteFile = useCallback((item: HistoryItem) => {
-    Alert.alert(
-      'Delete video file?',
-      `"${item.title}" will be permanently deleted from this device and removed from your library. This can't be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete file',
-          style: 'destructive',
-          onPress: async () => setItems(await deleteHistoryEntryAndFile(item.id)),
-        },
-      ]
-    );
-  }, []);
+  const sheetActions = useMemo<SheetAction[]>(() => {
+    if (!menuItem) return [];
+    const isMissing = Boolean(missing[menuItem.id]);
+    const actions: SheetAction[] = [];
 
-  const itemActions = useCallback(
-    (item: HistoryItem): SheetAction[] => [
-      ...(missing[item.id]
-        ? [{ key: 'redl', label: 'Re-download', icon: 'download-outline' as const, onPress: () => handleRedownload(item) }]
-        : [{ key: 'share', label: 'Share', icon: 'share-outline' as const, onPress: () => handleShare(item) }]),
-      {
-        key: 'remove',
-        label: 'Remove from library (keep file)',
-        icon: 'remove-circle-outline',
-        onPress: () => removeRecord(item),
+    if (!isMissing) {
+      actions.push({
+        key: 'share',
+        label: 'Share Video',
+        icon: 'share-outline',
+        onPress: () => shareSavedMedia(menuItem.fileUri),
+      });
+    }
+
+    actions.push({
+      key: 'redownload',
+      label: 'Re-download Video',
+      icon: 'download-outline',
+      onPress: () => handleRedownload(menuItem),
+    });
+
+    actions.push({
+      key: 'remove-record',
+      label: 'Remove from Library',
+      icon: 'bookmark-outline',
+      onPress: async () => {
+        await removeHistoryEntryOnly(menuItem.id);
+        setItems((prev) => prev.filter((i) => i.id !== menuItem.id));
       },
-      {
-        key: 'delete',
-        label: 'Delete video file…',
+    });
+
+    if (!isMissing) {
+      actions.push({
+        key: 'delete-file',
+        label: 'Delete Video File from Device',
         icon: 'trash-outline',
         destructive: true,
-        onPress: () => confirmDeleteFile(item),
-      },
-    ],
-    [missing, handleRedownload, handleShare, removeRecord, confirmDeleteFile]
-  );
-
-  const clearLibrary = useCallback(() => {
-    Alert.alert('Clear library', 'What should be cleared?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Records only (keep files)',
-        onPress: async () => {
-          await clearHistoryEntriesOnly();
-          refresh();
-        },
-      },
-      {
-        text: 'Records and video files…',
-        style: 'destructive',
-        onPress: () =>
+        onPress: () => {
           Alert.alert(
-            'Delete all saved videos?',
-            'Every saved video file in your library will be permanently deleted from this device. This can’t be undone.',
+            'Delete Video File?',
+            `"${menuItem.title}" will be permanently deleted from your phone's storage.`,
             [
               { text: 'Cancel', style: 'cancel' },
               {
-                text: 'Delete everything',
+                text: 'Delete File',
                 style: 'destructive',
                 onPress: async () => {
-                  await clearHistoryAndFiles();
-                  refresh();
+                  await deleteHistoryEntryAndFile(menuItem.id);
+                  setItems((prev) => prev.filter((i) => i.id !== menuItem.id));
                 },
               },
             ]
-          ),
-      },
-    ]);
-  }, [refresh]);
+          );
+        },
+      });
+    }
+
+    return actions;
+  }, [menuItem, missing, handleRedownload]);
 
   const renderItem = useCallback(
-    ({ item }: { item: HistoryItem }) => (
-      <LibraryRow
-        item={item}
-        missing={missing[item.id] === true}
-        onShare={handleShare}
-        onRedownload={handleRedownload}
-        onMore={setMenuItem}
-      />
-    ),
-    [missing, handleShare, handleRedownload]
+    ({ item }: { item: HistoryItem }) =>
+      viewMode === 'grid' ? (
+        <GridItem
+          item={item}
+          missing={Boolean(missing[item.id])}
+          onShare={handleShare}
+          onRedownload={handleRedownload}
+          onMore={handleMore}
+        />
+      ) : (
+        <ListItem
+          item={item}
+          missing={Boolean(missing[item.id])}
+          onShare={handleShare}
+          onRedownload={handleRedownload}
+          onMore={handleMore}
+        />
+      ),
+    [viewMode, missing, handleShare, handleRedownload, handleMore]
   );
-
-  const subtitle = `${items.length} ${items.length === 1 ? 'video' : 'videos'} · ${formatBytes(totalBytes)}`;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={styles.header}>
-        <View style={styles.headerTitle}>
-          <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>History</Text>
-          {items.length > 0 ? (
-            <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>{subtitle}</Text>
-          ) : null}
+      {/* Top Header Bar */}
+      <View style={[styles.topBar, { borderBottomColor: colors.outlineVariant }]}>
+        <View>
+          <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Library</Text>
+          <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
+            {items.length} saved · {formatBytes(totalBytes)}
+          </Text>
         </View>
-        {items.length > 0 ? (
-          <>
-            <IconButton
-              icon={searchOpen ? 'close' : 'search'}
-              label={searchOpen ? 'Close search' : 'Search history'}
-              onPress={() => {
-                if (searchOpen) setQuery('');
-                setSearchOpen(!searchOpen);
-              }}
+
+        <View style={styles.topBarActions}>
+          <Pressable
+            onPress={() => setSearchOpen((prev) => !prev)}
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Search library"
+          >
+            <Ionicons name="search-outline" size={20} color={searchOpen ? colors.primary : colors.textSecondary} />
+          </Pressable>
+
+          <Pressable
+            onPress={() => setViewMode((prev) => (prev === 'grid' ? 'list' : 'grid'))}
+            style={[styles.headerIconBtn, { backgroundColor: colors.surfaceContainer }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
+          >
+            <Ionicons
+              name={viewMode === 'grid' ? 'list-outline' : 'grid-outline'}
+              size={18}
+              color={colors.primary}
             />
-            <IconButton icon="ellipsis-vertical" label="Library options" onPress={() => setLibraryMenu(true)} />
-          </>
-        ) : null}
+          </Pressable>
+        </View>
       </View>
 
-      {searchOpen ? (
-        <View style={[styles.search, { backgroundColor: colors.surfaceContainer }]}>
-          <Ionicons name="search" size={18} color={colors.textMuted} />
+      {/* Expandable Search Input */}
+      {searchOpen && (
+        <View style={[styles.searchBox, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
           <TextInput
-            style={[styles.searchInput, { color: colors.textPrimary }]}
-            placeholder="Search title, creator or link"
-            placeholderTextColor={colors.textMuted}
             value={query}
             onChangeText={setQuery}
+            placeholder="Search by title or author..."
+            placeholderTextColor={colors.textMuted}
+            style={[styles.searchInput, { color: colors.textPrimary }]}
             autoFocus
-            autoCapitalize="none"
-            autoCorrect={false}
-            accessibilityLabel="Search history"
           />
+          {query.length > 0 && (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
+          )}
         </View>
-      ) : null}
+      )}
 
-      <FlatList
-        data={visible}
-        keyExtractor={(it) => it.id}
-        renderItem={renderItem}
-        getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={{ itemVisiblePercentThreshold: 50, minimumViewTime: 150 }}
-        initialNumToRender={10}
-        maxToRenderPerBatch={8}
-        windowSize={7}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          loaded ? (
-            query ? (
-              <EmptyState
-                iconName="search-outline"
-                title="No matches"
-                description={`Nothing in your history matches "${query}".`}
-              />
-            ) : (
-              <EmptyState
-                iconName="albums-outline"
-                title="Nothing saved yet"
-                description="Videos you download are listed here so you can share them again."
-                actionTitle="Go to Home"
-                onAction={() => router.navigate('/')}
-              />
-            )
-          ) : (
-            <View />
-          )
-        }
-      />
+      {/* Filter Chips Bar */}
+      <View style={styles.filterBar}>
+        <Pressable
+          onPress={() => setFilterMode('all')}
+          style={[
+            styles.filterChip,
+            {
+              backgroundColor: filterMode === 'all' ? colors.primaryContainer : colors.surfaceContainer,
+              borderColor: filterMode === 'all' ? colors.primary : colors.outlineVariant,
+            },
+          ]}
+        >
+          <Text style={[typography.labelMedium, { color: filterMode === 'all' ? colors.primary : colors.textSecondary }]}>
+            All ({items.length})
+          </Text>
+        </Pressable>
 
+        <Pressable
+          onPress={() => setFilterMode('available')}
+          style={[
+            styles.filterChip,
+            {
+              backgroundColor: filterMode === 'available' ? colors.primaryContainer : colors.surfaceContainer,
+              borderColor: filterMode === 'available' ? colors.primary : colors.outlineVariant,
+            },
+          ]}
+        >
+          <Text style={[typography.labelMedium, { color: filterMode === 'available' ? colors.primary : colors.textSecondary }]}>
+            On Device
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setFilterMode('missing')}
+          style={[
+            styles.filterChip,
+            {
+              backgroundColor: filterMode === 'missing' ? colors.warningLight : colors.surfaceContainer,
+              borderColor: filterMode === 'missing' ? colors.warning : colors.outlineVariant,
+            },
+          ]}
+        >
+          <Text style={[typography.labelMedium, { color: filterMode === 'missing' ? colors.warning : colors.textSecondary }]}>
+            Missing
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Media FlatList (Grid or List) */}
+      {filtered.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <View style={[styles.emptyIconBox, { backgroundColor: colors.surfaceContainer }]}>
+            <Ionicons name="film-outline" size={36} color={colors.textMuted} />
+          </View>
+          <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: spacing.md }]}>
+            {query ? 'No Videos Match Search' : 'Your Library is Empty'}
+          </Text>
+          <Text style={[typography.bodySmall, { color: colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 260 }]}>
+            {query
+              ? 'Try searching with a different title or username.'
+              : 'Downloaded videos will be organized here and saved in your device gallery.'}
+          </Text>
+          {!query && (
+            <Pressable
+              onPress={() => router.push('/(tabs)')}
+              style={[styles.emptyActionBtn, { backgroundColor: colors.primary }]}
+              accessibilityRole="button"
+              accessibilityLabel="Download videos"
+            >
+              <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+              <Text style={[typography.labelMedium, { color: '#FFFFFF', marginLeft: 6 }]}>Download Videos</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : (
+        <FlatList
+          key={viewMode} // Re-mount when switching between 1-column list and 2-column grid
+          data={filtered}
+          numColumns={viewMode === 'grid' ? 2 : 1}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          columnWrapperStyle={viewMode === 'grid' ? styles.gridRowWrapper : undefined}
+          showsVerticalScrollIndicator={false}
+          onEndReached={() => {
+            verifySlice(filtered.slice(0, verifiedRef.current.size + VERIFY_BATCH));
+          }}
+          onEndReachedThreshold={0.5}
+        />
+      )}
+
+      {/* Bottom Sheet Menu */}
       <BottomSheetMenu
-        visible={menuItem !== null}
-        {...(menuItem ? { title: menuItem.title } : {})}
-        actions={menuItem ? itemActions(menuItem) : []}
+        visible={Boolean(menuItem)}
+        title={menuItem?.title || 'Saved Video'}
+        actions={sheetActions}
         onClose={() => setMenuItem(null)}
-      />
-      <BottomSheetMenu
-        visible={libraryMenu}
-        actions={[
-          { key: 'clear', label: 'Clear library…', icon: 'trash-outline', destructive: true, onPress: clearLibrary },
-        ]}
-        onClose={() => setLibraryMenu(false)}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    minHeight: 64,
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.xs,
+  container: {
+    flex: 1,
+  },
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { flex: 1 },
-  search: {
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
     paddingHorizontal: spacing.md,
-    height: 48,
-    borderRadius: borderRadius.full,
-    gap: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
   },
-  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0, minHeight: 44 },
-  listContent: { paddingBottom: spacing.xxxl },
-  row: {
-    height: ROW_HEIGHT,
+  searchInput: {
+    flex: 1,
+    marginLeft: spacing.sm,
+    fontSize: 14,
+    paddingVertical: 4,
+  },
+  filterBar: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  filterChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    borderWidth: 1.5,
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  gridRowWrapper: {
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  gridCard: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
+  },
+  gridThumbContainer: {
+    width: '100%',
+    height: GRID_ITEM_WIDTH * 1.25, // Sleek vertical short-form aspect ratio
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  gridThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gridDurationPill: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  gridDurationText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  gridMissingBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  gridMissingText: {
+    color: '#000000',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  gridMetaContainer: {
+    padding: spacing.sm,
+  },
+  gridActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.xs,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
   },
-  thumb: {
-    width: THUMB_W,
-    height: THUMB_H,
+  gridActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: borderRadius.sm,
+  },
+  gridMoreBtn: {
+    padding: 4,
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+  },
+  listThumb: {
+    width: 48,
+    height: 62,
     borderRadius: borderRadius.sm,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
-  thumbImg: { width: THUMB_W, height: THUMB_H },
-  rowMain: { flex: 1, marginHorizontal: spacing.md },
+  listThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  listDurationBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 2,
+  },
+  durationText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  listMeta: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
+  listActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.sm,
+  },
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxl,
+  },
+  emptyIconBox: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.lg,
+  },
 });

@@ -61,11 +61,20 @@ export const defaultSettings: AppSettings = {
   enableLaunchAnimation: false,
 };
 
+let memoryCache: AppSettings = { ...defaultSettings };
+
+export const getCachedSettings = (): AppSettings => {
+  return memoryCache;
+};
+
 export const getSettings = async (): Promise<AppSettings> => {
   try {
     const raw = await AsyncStorage.getItem(SETTINGS_KEY);
     const dynamicDefaultUrl = getDefaultBackendUrl();
-    if (!raw) return { ...defaultSettings, backendBaseUrl: dynamicDefaultUrl };
+    if (!raw) {
+      memoryCache = { ...defaultSettings, backendBaseUrl: dynamicDefaultUrl };
+      return memoryCache;
+    }
     const parsed = JSON.parse(raw);
     const settings = { ...defaultSettings, ...parsed };
 
@@ -81,15 +90,18 @@ export const getSettings = async (): Promise<AppSettings> => {
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)).catch(() => {});
     }
 
+    memoryCache = settings;
     return settings;
   } catch {
-    return { ...defaultSettings, backendBaseUrl: getDefaultBackendUrl() };
+    memoryCache = { ...defaultSettings, backendBaseUrl: getDefaultBackendUrl() };
+    return memoryCache;
   }
 };
 
 export const saveSettings = async (settings: Partial<AppSettings>): Promise<AppSettings> => {
   const current = await getSettings();
   const updated = { ...current, ...settings };
+  memoryCache = updated;
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
   return updated;
 };

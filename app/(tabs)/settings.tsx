@@ -1,108 +1,89 @@
-import { useState, useEffect, useCallback, ReactNode } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Alert, Pressable } from 'react-native';
+import { useState, useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TextInput,
+  Alert,
+  Switch,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { SegmentedControl, SegmentOption } from '../../src/components/SegmentedControl';
-import { TextButton } from '../../src/components/TextButton';
-import { getSettings, saveSettings, getDefaultBackendUrl } from '../../src/storage/settingsStore';
+import { Button } from '../../src/components/Button';
+import {
+  getSettings,
+  saveSettings,
+  getCachedSettings,
+  getDefaultBackendUrl,
+} from '../../src/storage/settingsStore';
 import { cleanOrphanedTempFiles } from '../../src/services/mediaManager';
 import { clearHistoryEntriesOnly, clearHistoryAndFiles } from '../../src/storage/historyStore';
 import { AppSettings, ThemeMode } from '../../src/types';
-
-const THEME_OPTIONS: SegmentOption<ThemeMode>[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-];
-
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.group}>
-      <Text style={[typography.titleSmall, styles.groupTitle, { color: colors.primary }]}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-
-interface RowProps {
-  label: string;
-  description?: string;
-  trailing?: ReactNode;
-  onPress?: () => void;
-  tone?: 'default' | 'danger';
-  last?: boolean;
-}
-
-function Row({ label, description, trailing, onPress, tone = 'default', last }: RowProps) {
-  const { colors } = useTheme();
-  const content = (
-    <>
-      <View style={styles.rowText}>
-        <Text
-          style={[typography.bodyMedium, { color: tone === 'danger' ? colors.danger : colors.textPrimary }]}
-        >
-          {label}
-        </Text>
-        {description ? (
-          <Text style={[typography.bodySmall, { color: colors.textSecondary }]} numberOfLines={2}>
-            {description}
-          </Text>
-        ) : null}
-      </View>
-      {trailing}
-    </>
-  );
-  const border = last ? null : { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant };
-  return onPress ? (
-    <Pressable
-      onPress={onPress}
-      android_ripple={{ color: colors.ripple }}
-      style={[styles.row, border]}
-      accessibilityRole="button"
-      accessibilityLabel={description ? `${label}. ${description}` : label}
-    >
-      {content}
-    </Pressable>
-  ) : (
-    <View style={[styles.row, border]}>{content}</View>
-  );
-}
 
 export default function SettingsScreen() {
   const { colors, themeMode, setThemeMode } = useTheme();
   const router = useRouter();
 
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [urlInput, setUrlInput] = useState('');
+  // Synchronously initialize with memory cache — NEVER renders null, eliminating the 1s flash!
+  const [settings, setSettings] = useState<AppSettings>(() => getCachedSettings());
+  const [urlInput, setUrlInput] = useState(() => getCachedSettings().backendBaseUrl);
   const [editingUrl, setEditingUrl] = useState(false);
+  const [pingStatus, setPingStatus] = useState<'idle' | 'checking' | 'online' | 'offline'>('idle');
 
   useEffect(() => {
+    // Background sync from persistent storage
     getSettings().then((s) => {
       setSettings(s);
-      setUrlInput(s.backendBaseUrl);
+      if (!editingUrl) {
+        setUrlInput(s.backendBaseUrl);
+      }
     });
-  }, []);
+  }, [editingUrl]);
 
   const updateSetting = useCallback(async (patch: Partial<AppSettings>) => {
-    setSettings(await saveSettings(patch));
+    const updated = await saveSettings(patch);
+    setSettings(updated);
   }, []);
+
+  const handleTestPing = useCallback(async () => {
+    setPingStatus('checking');
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const base = (urlInput || settings.backendBaseUrl || getDefaultBackendUrl()).replace(/\/$/, '');
+      const response = await fetch(`${base}/healthz`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        setPingStatus('online');
+      } else {
+        setPingStatus('offline');
+      }
+    } catch {
+      setPingStatus('offline');
+    }
+  }, [urlInput, settings.backendBaseUrl]);
 
   const handleClearCache = useCallback(() => {
     Alert.alert(
-      'Clear temporary files?',
-      'Removes leftover partial downloads that no active, paused or retryable download needs. Saved videos and history are not touched.',
+      'Purge Temporary Files?',
+      'Removes leftover download chunks that are no longer needed. Saved videos and history are never touched.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear',
+          text: 'Purge Now',
           onPress: async () => {
             const count = await cleanOrphanedTempFiles();
-            Alert.alert('Done', `Removed ${count} temporary ${count === 1 ? 'file' : 'files'}.`);
+            Alert.alert('Cache Purged', `Cleared ${count} temporary ${count === 1 ? 'file' : 'files'}.`);
           },
         },
       ]
@@ -110,30 +91,30 @@ export default function SettingsScreen() {
   }, []);
 
   const handleClearHistory = useCallback(() => {
-    Alert.alert('Clear history', 'What should be cleared?', [
+    Alert.alert('Clear Library & History', 'Choose how you want to clear your saved items:', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Records only (keep files)',
+        text: 'Clear Records (Keep Files)',
         onPress: async () => {
           await clearHistoryEntriesOnly();
-          Alert.alert('Done', 'History records cleared. Saved video files were kept.');
+          Alert.alert('Done', 'History list cleared. Video files remain saved on your device.');
         },
       },
       {
-        text: 'Records and video files…',
+        text: 'Delete Records & Video Files',
         style: 'destructive',
         onPress: () =>
           Alert.alert(
-            'Delete all saved videos?',
-            'Every saved video file and its history record will be permanently deleted from this device. This can’t be undone.',
+            'Delete All Saved Videos?',
+            'This will permanently delete all downloaded video files from device storage. This action cannot be undone.',
             [
               { text: 'Cancel', style: 'cancel' },
               {
-                text: 'Delete everything',
+                text: 'Permanently Delete',
                 style: 'destructive',
                 onPress: async () => {
                   await clearHistoryAndFiles();
-                  Alert.alert('Done', 'All saved videos and history records were deleted.');
+                  Alert.alert('Done', 'All downloaded video files and records have been deleted.');
                 },
               },
             ]
@@ -150,150 +131,467 @@ export default function SettingsScreen() {
     }
     await updateSetting({ backendBaseUrl: trimmed });
     setEditingUrl(false);
+    setPingStatus('idle');
   }, [urlInput, updateSetting]);
 
-  if (!settings) return null;
+  const handleResetUrl = useCallback(async () => {
+    const defaultUrl = getDefaultBackendUrl();
+    setUrlInput(defaultUrl);
+    await updateSetting({ backendBaseUrl: defaultUrl });
+    setEditingUrl(false);
+    setPingStatus('idle');
+  }, [updateSetting]);
+
+  const themeOptions: { mode: ThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { mode: 'system', label: 'System', icon: 'phone-portrait-outline' },
+    { mode: 'light', label: 'Light', icon: 'sunny-outline' },
+    { mode: 'dark', label: 'Dark', icon: 'moon-outline' },
+  ];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={styles.header}>
+      {/* Top Header Bar */}
+      <View style={[styles.topBar, { borderBottomColor: colors.outlineVariant }]}>
         <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Settings</Text>
+        <Pressable
+          onPress={() => router.push('/about')}
+          style={styles.aboutPill}
+          android_ripple={{ color: colors.ripple }}
+          accessibilityRole="button"
+          accessibilityLabel="About ClipSave"
+        >
+          <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+          <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>About</Text>
+        </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Group title="Appearance">
-          <View style={styles.themeRow}>
-            <SegmentedControl
-              options={THEME_OPTIONS}
-              selectedValue={themeMode}
-              onSelect={setThemeMode}
-              accessibilityLabel="Theme"
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* App Hero Status Card */}
+        <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+          <View style={styles.heroRow}>
+            <View style={[styles.appIconBox, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
+              <Ionicons name="film" size={26} color={colors.primary} />
+            </View>
+            <View style={styles.heroMeta}>
+              <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>ClipSave Mobile</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                Android Media Suite · v1.0.0
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Section: Appearance */}
+        <View style={styles.sectionHeader}>
+          <Text style={[typography.titleSmall, { color: colors.textSecondary }]}>APPEARANCE</Text>
+        </View>
+        <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+          <Text style={[typography.bodySmall, { color: colors.textMuted, marginBottom: spacing.sm }]}>
+            Theme Mode
+          </Text>
+          <View style={styles.themeSelectorRow}>
+            {themeOptions.map((opt) => {
+              const active = themeMode === opt.mode;
+              return (
+                <Pressable
+                  key={opt.mode}
+                  onPress={() => setThemeMode(opt.mode)}
+                  style={[
+                    styles.themeTile,
+                    {
+                      backgroundColor: active ? colors.primaryContainer : colors.surface,
+                      borderColor: active ? colors.primary : colors.outlineVariant,
+                    },
+                  ]}
+                  android_ripple={{ color: colors.ripple }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${opt.label} theme`}
+                  accessibilityState={{ selected: active }}
+                >
+                  <Ionicons
+                    name={opt.icon}
+                    size={20}
+                    color={active ? colors.primary : colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      typography.labelMedium,
+                      { color: active ? colors.primary : colors.textPrimary, marginTop: 4 },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+
+          <View style={styles.switchRow}>
+            <View style={styles.switchMeta}>
+              <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>Launch animation</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                Play a brief animation when ClipSave opens.
+              </Text>
+            </View>
+            <Switch
+              value={Boolean(settings.enableLaunchAnimation)}
+              onValueChange={(val) => updateSetting({ enableLaunchAnimation: val })}
+              thumbColor={settings.enableLaunchAnimation ? colors.primary : colors.textMuted}
+              trackColor={{ false: colors.outlineVariant, true: colors.primaryLight }}
+              accessibilityLabel="Launch animation toggle"
             />
           </View>
-          <Row
-            label="Launch animation"
-            description="Play a brief animation when ClipSave opens."
-            last
-            trailing={
-              <Switch
-                value={Boolean(settings.enableLaunchAnimation)}
-                onValueChange={(val) => updateSetting({ enableLaunchAnimation: val })}
-                trackColor={{ false: colors.outline, true: colors.primary }}
-                thumbColor="#FFFFFF"
-                accessibilityLabel="Toggle launch animation"
-              />
-            }
-          />
-        </Group>
+        </View>
 
-        <Group title="Connection">
-          <Row
-            label="Resolver URL"
-            description={settings.backendBaseUrl}
-            last={!editingUrl}
-            trailing={
-              <TextButton
-                title={editingUrl ? 'Cancel' : 'Edit'}
-                onPress={() => {
-                  setUrlInput(settings.backendBaseUrl);
-                  setEditingUrl(!editingUrl);
-                }}
-                accessibilityLabel={editingUrl ? 'Cancel editing resolver URL' : 'Edit resolver URL'}
-              />
-            }
-          />
+        {/* Section: Connection & Backend */}
+        <View style={styles.sectionHeader}>
+          <Text style={[typography.titleSmall, { color: colors.textSecondary }]}>RESOLVER CONNECTION</Text>
+        </View>
+        <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+          <View style={styles.connectionHeader}>
+            <View>
+              <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>Backend Resolver</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                Endpoint for resolving public TikTok media
+              </Text>
+            </View>
+            <Pressable
+              onPress={handleTestPing}
+              style={[
+                styles.pingButton,
+                {
+                  backgroundColor:
+                    pingStatus === 'online'
+                      ? colors.successLight
+                      : pingStatus === 'offline'
+                      ? colors.dangerLight
+                      : colors.surface,
+                  borderColor:
+                    pingStatus === 'online'
+                      ? colors.success
+                      : pingStatus === 'offline'
+                      ? colors.danger
+                      : colors.outlineVariant,
+                },
+              ]}
+              disabled={pingStatus === 'checking'}
+              android_ripple={{ color: colors.ripple }}
+              accessibilityRole="button"
+              accessibilityLabel="Test resolver connection"
+            >
+              {pingStatus === 'checking' ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <Ionicons
+                    name={
+                      pingStatus === 'online'
+                        ? 'checkmark-circle'
+                        : pingStatus === 'offline'
+                        ? 'alert-circle'
+                        : 'pulse-outline'
+                    }
+                    size={15}
+                    color={
+                      pingStatus === 'online'
+                        ? colors.success
+                        : pingStatus === 'offline'
+                        ? colors.danger
+                        : colors.primary
+                    }
+                  />
+                  <Text
+                    style={[
+                      typography.labelMedium,
+                      {
+                        color:
+                          pingStatus === 'online'
+                            ? colors.success
+                            : pingStatus === 'offline'
+                            ? colors.danger
+                            : colors.primary,
+                        marginLeft: 4,
+                      },
+                    ]}
+                  >
+                    {pingStatus === 'online'
+                      ? 'Online'
+                      : pingStatus === 'offline'
+                      ? 'Unreachable'
+                      : 'Test Ping'}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+
           {editingUrl ? (
-            <View style={styles.editBox}>
+            <View style={styles.editUrlBlock}>
               <TextInput
-                style={[
-                  styles.urlInput,
-                  { color: colors.textPrimary, backgroundColor: colors.surfaceContainer },
-                ]}
                 value={urlInput}
                 onChangeText={setUrlInput}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
+                style={[
+                  styles.urlInput,
+                  {
+                    color: colors.textPrimary,
+                    backgroundColor: colors.surface,
+                    borderColor: colors.primary,
+                  },
+                ]}
                 placeholder="http://192.168.1.x:8080"
                 placeholderTextColor={colors.textMuted}
-                accessibilityLabel="Resolver URL"
               />
-              <View style={styles.editActions}>
-                <TextButton
-                  title="Reset to default"
-                  tone="neutral"
-                  onPress={() => setUrlInput(getDefaultBackendUrl())}
+              <View style={styles.editUrlButtons}>
+                <Button
+                  title="Cancel"
+                  variant="outline"
+                  size="sm"
+                  onPress={() => {
+                    setUrlInput(settings.backendBaseUrl);
+                    setEditingUrl(false);
+                  }}
                 />
-                <TextButton title="Save" onPress={handleSaveUrl} />
+                <Button title="Save" variant="primary" size="sm" onPress={handleSaveUrl} />
               </View>
             </View>
-          ) : null}
-        </Group>
+          ) : (
+            <View style={styles.urlDisplayRow}>
+              <Text
+                style={[typography.labelMedium, { color: colors.textPrimary, flex: 1 }]}
+                numberOfLines={1}
+              >
+                {settings.backendBaseUrl}
+              </Text>
+              <Pressable
+                onPress={() => setEditingUrl(true)}
+                style={styles.textActionPill}
+                accessibilityRole="button"
+                accessibilityLabel="Edit resolver URL"
+              >
+                <Text style={[typography.labelMedium, { color: colors.primary }]}>Edit</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleResetUrl}
+                style={styles.textActionPill}
+                accessibilityRole="button"
+                accessibilityLabel="Reset URL to default"
+              >
+                <Text style={[typography.labelMedium, { color: colors.textSecondary }]}>Reset</Text>
+              </Pressable>
+            </View>
+          )}
 
-        <Group title="Development">
-          <Row
-            label="Mock resolver"
-            description="Use built-in sample data instead of the backend. For testing only."
-            last
-            trailing={
-              <Switch
-                value={settings.useMockResolver}
-                onValueChange={(v) => updateSetting({ useMockResolver: v })}
-                trackColor={{ false: colors.outline, true: colors.primary }}
-                thumbColor="#FFFFFF"
-                accessibilityLabel="Mock resolver mode"
-              />
-            }
-          />
-        </Group>
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
 
-        <Group title="Storage">
-          <Row
-            label="Clear temporary files"
-            description="Remove leftover partial downloads"
+          <View style={styles.switchRow}>
+            <View style={styles.switchMeta}>
+              <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>Mock resolver</Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                Returns test media fixtures without contacting a network server.
+              </Text>
+            </View>
+            <Switch
+              value={Boolean(settings.useMockResolver)}
+              onValueChange={(val) => updateSetting({ useMockResolver: val })}
+              thumbColor={settings.useMockResolver ? colors.warning : colors.textMuted}
+              trackColor={{ false: colors.outlineVariant, true: colors.warningLight }}
+              accessibilityLabel="Mock resolver toggle"
+            />
+          </View>
+        </View>
+
+        {/* Section: Storage & Maintenance */}
+        <View style={styles.sectionHeader}>
+          <Text style={[typography.titleSmall, { color: colors.textSecondary }]}>STORAGE & CLEANUP</Text>
+        </View>
+        <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+          <Pressable
             onPress={handleClearCache}
-          />
-          <Row
-            label="Clear history…"
-            description="Remove records, optionally with the saved video files"
-            tone="danger"
-            last
-            onPress={handleClearHistory}
-          />
-        </Group>
+            style={styles.storageActionRow}
+            android_ripple={{ color: colors.ripple }}
+            accessibilityRole="button"
+            accessibilityLabel="Purge temporary files"
+          >
+            <View style={[styles.storageIconBox, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="trash-bin-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={styles.storageActionMeta}>
+              <Text style={[typography.bodyMedium, { color: colors.textPrimary }]}>
+                Purge Temporary Cache
+              </Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                Delete orphaned partial chunks (saved videos are kept safe).
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
 
-        <Group title="About">
-          <Row
-            label="About, privacy and licenses"
-            description="Version 1.0.0"
-            last
-            onPress={() => router.push('/about')}
-            trailing={<Ionicons name="chevron-forward" size={20} color={colors.textMuted} />}
-          />
-        </Group>
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+
+          <Pressable
+            onPress={handleClearHistory}
+            style={styles.storageActionRow}
+            android_ripple={{ color: colors.ripple }}
+            accessibilityRole="button"
+            accessibilityLabel="Clear library and downloaded files"
+          >
+            <View style={[styles.storageIconBox, { backgroundColor: colors.dangerLight }]}>
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+            </View>
+            <View style={styles.storageActionMeta}>
+              <Text style={[typography.bodyMedium, { color: colors.danger }]}>
+                Clear Library & Videos
+              </Text>
+              <Text style={[typography.bodySmall, { color: colors.textSecondary }]}>
+                Manage saved download history and local storage media.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { height: 56, paddingHorizontal: spacing.lg, justifyContent: 'center' },
-  content: { paddingBottom: spacing.huge },
-  group: { marginTop: spacing.lg },
-  groupTitle: { paddingHorizontal: spacing.lg, marginBottom: spacing.xs },
-  row: {
-    minHeight: 56,
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.sm,
-    paddingVertical: spacing.sm,
+  container: {
+    flex: 1,
+  },
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 0,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowText: { flex: 1, paddingRight: spacing.sm },
-  themeRow: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs },
-  editBox: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
-  urlInput: { height: 48, borderRadius: borderRadius.md, paddingHorizontal: spacing.md, fontSize: 15 },
-  editActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
+  aboutPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+  },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxl,
+  },
+  card: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  appIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  heroMeta: {
+    flex: 1,
+  },
+  sectionHeader: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    paddingHorizontal: 2,
+  },
+  themeSelectorRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  themeTile: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: spacing.md,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  switchMeta: {
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  connectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  pingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+  },
+  urlDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  textActionPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    marginLeft: spacing.xs,
+  },
+  editUrlBlock: {
+    marginTop: spacing.xs,
+  },
+  urlInput: {
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    fontSize: 14,
+  },
+  editUrlButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  storageActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  storageIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  storageActionMeta: {
+    flex: 1,
+  },
 });
