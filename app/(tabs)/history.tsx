@@ -1,514 +1,468 @@
-import { useState, useCallback, useMemo, useRef, memo } from 'react';
-import { View, Text, FlatList, StyleSheet, Alert, Image, TextInput, Pressable, Dimensions } from 'react-native';
+import { useState, useCallback, useMemo } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  Image,
+  TextInput,
+  Pressable,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../../src/theme/ThemeContext';
-import { spacing, borderRadius } from '../../src/theme/spacing';
+import { spacing } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
 import { BottomSheetMenu, SheetAction } from '../../src/components/BottomSheetMenu';
 import {
   getHistory,
   removeHistoryEntryOnly,
   deleteHistoryEntryAndFile,
-  checkHistoryFilesExist,
 } from '../../src/storage/historyStore';
 import { shareSavedMedia } from '../../src/services/mediaManager';
-import { formatBytes, formatDuration, formatShortDate } from '../../src/utils/formatters';
+import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
 
-const VERIFY_BATCH = 12;
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const GRID_ITEM_WIDTH = (SCREEN_WIDTH - spacing.lg * 2 - spacing.sm) / 2;
-
-interface RowProps {
-  item: HistoryItem;
-  missing: boolean;
-  onShare: (item: HistoryItem) => void;
-  onRedownload: (item: HistoryItem) => void;
-  onMore: (item: HistoryItem) => void;
-}
-
-/** Grid Item: Visual TikTok-style 2-column card */
-const GridItem = memo(function GridItem({ item, missing, onShare, onRedownload, onMore }: RowProps) {
-  const { colors } = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.gridCard,
-        {
-          width: GRID_ITEM_WIDTH,
-          backgroundColor: colors.surfaceContainer,
-          borderColor: missing ? colors.warning : colors.outlineVariant,
-        },
-      ]}
-    >
-      <View style={[styles.gridThumbContainer, { backgroundColor: colors.surface }]}>
-        {item.thumbnailUrl ? (
-          <Image source={{ uri: item.thumbnailUrl }} style={styles.gridThumbImage} resizeMode="cover" />
-        ) : (
-          <Ionicons name="film-outline" size={32} color={colors.textMuted} />
-        )}
-
-        {item.durationSeconds ? (
-          <View style={styles.gridDurationPill}>
-            <Text style={styles.gridDurationText}>{formatDuration(item.durationSeconds)}</Text>
-          </View>
-        ) : null}
-
-        {missing ? (
-          <View style={[styles.gridMissingBadge, { backgroundColor: colors.warning }]}>
-            <Text style={styles.gridMissingText}>File Missing</Text>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.gridMetaContainer}>
-        <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]} numberOfLines={2}>
-          {item.title || 'Saved Video'}
-        </Text>
-        <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]} numberOfLines={1}>
-          {formatBytes(item.fileSizeBytes)} {item.author ? `· @${item.author}` : ''}
-        </Text>
-
-        <View style={styles.gridActionRow}>
-          {missing ? (
-            <Pressable
-              onPress={() => onRedownload(item)}
-              style={[styles.gridActionPill, { backgroundColor: colors.primaryContainer }]}
-              accessibilityRole="button"
-              accessibilityLabel={`Re-download ${item.title}`}
-            >
-              <Ionicons name="download-outline" size={14} color={colors.primary} />
-              <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>Re-fetch</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => onShare(item)}
-              style={[styles.gridActionPill, { backgroundColor: colors.primaryLight }]}
-              accessibilityRole="button"
-              accessibilityLabel={`Share ${item.title}`}
-            >
-              <Ionicons name="share-outline" size={14} color={colors.primary} />
-              <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>Share</Text>
-            </Pressable>
-          )}
-
-          <Pressable
-            onPress={() => onMore(item)}
-            style={styles.gridMoreBtn}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={`More options for ${item.title}`}
-          >
-            <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
-          </Pressable>
-        </View>
-      </View>
-    </View>
-  );
-});
-
-/** List Item: Detailed row view */
-const ListItem = memo(function ListItem({ item, missing, onShare, onRedownload, onMore }: RowProps) {
-  const { colors } = useTheme();
-  const meta = [formatShortDate(item.savedAt), formatBytes(item.fileSizeBytes), item.author ? `@${item.author}` : '']
-    .filter(Boolean)
-    .join(' · ');
-
-  return (
-    <View style={[styles.listRow, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-      <View style={[styles.listThumb, { backgroundColor: colors.surface }]}>
-        {item.thumbnailUrl ? (
-          <Image source={{ uri: item.thumbnailUrl }} style={styles.listThumbImg} resizeMode="cover" />
-        ) : (
-          <Ionicons name="videocam-outline" size={22} color={colors.textMuted} />
-        )}
-        {item.durationSeconds ? (
-          <View style={styles.listDurationBadge}>
-            <Text style={styles.durationText}>{formatDuration(item.durationSeconds)}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.listMeta}>
-        <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]} numberOfLines={2}>
-          {item.title || 'Saved Video'}
-        </Text>
-        <Text
-          style={[typography.bodySmall, { color: missing ? colors.warning : colors.textSecondary, marginTop: 2 }]}
-          numberOfLines={1}
-        >
-          {missing ? 'File moved or deleted from storage' : meta}
-        </Text>
-      </View>
-
-      <View style={styles.listActions}>
-        {missing ? (
-          <Pressable
-            onPress={() => onRedownload(item)}
-            style={[styles.iconCircle, { backgroundColor: colors.primaryContainer }]}
-            accessibilityRole="button"
-            accessibilityLabel={`Re-download ${item.title}`}
-          >
-            <Ionicons name="download-outline" size={16} color={colors.primary} />
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={() => onShare(item)}
-            style={[styles.iconCircle, { backgroundColor: colors.primaryLight }]}
-            accessibilityRole="button"
-            accessibilityLabel={`Share ${item.title}`}
-          >
-            <Ionicons name="share-outline" size={16} color={colors.primary} />
-          </Pressable>
-        )}
-
-        <Pressable
-          onPress={() => onMore(item)}
-          style={[styles.iconCircle, { backgroundColor: colors.surface, marginLeft: spacing.xs }]}
-          accessibilityRole="button"
-          accessibilityLabel={`More options for ${item.title}`}
-        >
-          <Ionicons name="ellipsis-vertical" size={16} color={colors.textSecondary} />
-        </Pressable>
-      </View>
-    </View>
-  );
-});
+type SortOption = 'newest' | 'oldest' | 'size';
 
 export default function HistoryScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [items, setItems] = useState<HistoryItem[]>([]);
-  const [query, setQuery] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [filterMode, setFilterMode] = useState<'all' | 'available' | 'missing'>('all');
-  const [missing, setMissing] = useState<Record<string, boolean>>({});
-  const [menuItem, setMenuItem] = useState<HistoryItem | null>(null);
+  const insets = useSafeAreaInsets();
 
-  const verifiedRef = useRef(new Set<string>());
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState<SortOption>('newest');
+  const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(null);
+  const [showItemMenu, setShowItemMenu] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 
-  const reload = useCallback(async () => {
-    const list = await getHistory(false);
-    setItems(list);
+  const loadHistory = useCallback(async () => {
+    try {
+      const list = await getHistory(false);
+      setHistory(list);
+    } catch {
+      // ignore
+    }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      reload();
-    }, [reload])
+      loadHistory();
+    }, [loadHistory])
   );
 
-  // Lazy batch file-existence verification
-  const verifySlice = useCallback(
-    async (batch: HistoryItem[]) => {
-      const needed = batch.filter((it) => !verifiedRef.current.has(it.id));
-      if (needed.length === 0) return;
-      for (const it of needed) verifiedRef.current.add(it.id);
+  // Filtered and Sorted list
+  const filteredList = useMemo(() => {
+    let result = [...history];
 
-      const existsMap = await checkHistoryFilesExist(needed);
-      setMissing((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const [id, exists] of Object.entries(existsMap)) {
-          const isMiss = !exists;
-          if (next[id] !== isMiss) {
-            next[id] = isMiss;
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    },
-    []
-  );
-
-  // Filter items
-  const filtered = useMemo(() => {
-    let result = items;
-    const q = query.trim().toLowerCase();
-    if (q) {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
       result = result.filter(
-        (it) => it.title.toLowerCase().includes(q) || (it.author && it.author.toLowerCase().includes(q))
+        (it) =>
+          (it.title || '').toLowerCase().includes(q) ||
+          (it.author || '').toLowerCase().includes(q)
       );
     }
-    if (filterMode === 'available') {
-      result = result.filter((it) => !missing[it.id]);
-    } else if (filterMode === 'missing') {
-      result = result.filter((it) => Boolean(missing[it.id]));
+
+    const getTimestamp = (it: HistoryItem) => new Date(it.savedAt).getTime() || 0;
+
+    if (sortOption === 'newest') {
+      result.sort((a, b) => getTimestamp(b) - getTimestamp(a));
+    } else if (sortOption === 'oldest') {
+      result.sort((a, b) => getTimestamp(a) - getTimestamp(b));
+    } else if (sortOption === 'size') {
+      result.sort((a, b) => (b.fileSizeBytes || 0) - (a.fileSizeBytes || 0));
     }
+
     return result;
-  }, [items, query, filterMode, missing]);
+  }, [history, searchQuery, sortOption]);
 
-  // Initial slice verify
-  useFocusEffect(
-    useCallback(() => {
-      if (items.length > 0) {
-        verifySlice(items.slice(0, VERIFY_BATCH));
-      }
-    }, [items, verifySlice])
+  // Statistics
+  const totalSaved = history.length;
+  const totalSizeBytes = useMemo(
+    () => history.reduce((sum, it) => sum + (it.fileSizeBytes || 0), 0),
+    [history]
   );
+  const storageUsedFormatted = formatBytes(totalSizeBytes);
+  // Estimate video count vs image slideshow count
+  const videoCount = history.filter((it) => it.durationSeconds && it.durationSeconds > 0).length || totalSaved;
+  const imageCount = Math.max(0, totalSaved - videoCount);
 
-  const totalBytes = useMemo(() => {
-    return items.reduce((acc, it) => acc + (it.fileSizeBytes || 0), 0);
-  }, [items]);
+  // Group into Today, Yesterday, Older
+  const groupedSections = useMemo(() => {
+    const today: HistoryItem[] = [];
+    const yesterday: HistoryItem[] = [];
+    const older: HistoryItem[] = [];
 
-  const handleShare = useCallback((item: HistoryItem) => {
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayMidnight = todayMidnight - 86400000;
+
+    filteredList.forEach((item) => {
+      const t = new Date(item.savedAt).getTime() || 0;
+      if (t >= todayMidnight) {
+        today.push(item);
+      } else if (t >= yesterdayMidnight) {
+        yesterday.push(item);
+      } else {
+        older.push(item);
+      }
+    });
+
+    return [
+      { key: 'today', title: `Today (${today.length} videos)`, data: today },
+      { key: 'yesterday', title: `Yesterday (${yesterday.length} videos)`, data: yesterday },
+      { key: 'older', title: `Older (${older.length} videos)`, data: older },
+    ].filter((sec) => sec.data.length > 0);
+  }, [filteredList]);
+
+  // Actions
+  const handleOpenVideo = useCallback((item: HistoryItem) => {
+    // Open through system player / share
     shareSavedMedia(item.fileUri);
   }, []);
 
-  const handleRedownload = useCallback(
-    (item: HistoryItem) => {
-      router.push({
-        pathname: '/(tabs)',
-        params: { prefill: item.sourceUrl, ts: String(Date.now()) },
-      });
-    },
-    [router]
-  );
-
-  const handleMore = useCallback((item: HistoryItem) => {
-    setMenuItem(item);
+  const handleShareVideo = useCallback((item: HistoryItem) => {
+    shareSavedMedia(item.fileUri);
   }, []);
 
-  const sheetActions = useMemo<SheetAction[]>(() => {
-    if (!menuItem) return [];
-    const isMissing = Boolean(missing[menuItem.id]);
-    const actions: SheetAction[] = [];
-
-    if (!isMissing) {
-      actions.push({
-        key: 'share',
-        label: 'Share Video',
-        icon: 'share-outline',
-        onPress: () => shareSavedMedia(menuItem.fileUri),
-      });
+  const handleCopyLink = useCallback(async (item: HistoryItem) => {
+    if (item.sourceUrl) {
+      await Clipboard.setStringAsync(item.sourceUrl);
+      Alert.alert('Link Copied', 'TikTok video URL copied to clipboard.');
+    } else {
+      Alert.alert('No URL', 'Source URL is unavailable for this item.');
     }
+  }, []);
 
-    actions.push({
-      key: 'redownload',
-      label: 'Re-download Video',
-      icon: 'download-outline',
-      onPress: () => handleRedownload(menuItem),
-    });
+  const handleRemoveEntryOnly = useCallback(async (item: HistoryItem) => {
+    await removeHistoryEntryOnly(item.id);
+    loadHistory();
+  }, [loadHistory]);
 
-    actions.push({
-      key: 'remove-record',
-      label: 'Remove from Library',
-      icon: 'bookmark-outline',
-      onPress: async () => {
-        await removeHistoryEntryOnly(menuItem.id);
-        setItems((prev) => prev.filter((i) => i.id !== menuItem.id));
-      },
-    });
-
-    if (!isMissing) {
-      actions.push({
-        key: 'delete-file',
-        label: 'Delete Video File from Device',
-        icon: 'trash-outline',
-        destructive: true,
-        onPress: () => {
-          Alert.alert(
-            'Delete Video File?',
-            `"${menuItem.title}" will be permanently deleted from your phone's storage.`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete File',
-                style: 'destructive',
-                onPress: async () => {
-                  await deleteHistoryEntryAndFile(menuItem.id);
-                  setItems((prev) => prev.filter((i) => i.id !== menuItem.id));
-                },
-              },
-            ]
-          );
+  const handleDeleteFile = useCallback((item: HistoryItem) => {
+    Alert.alert(
+      'Delete from Device?',
+      `Permanently delete "${item.title || 'this video'}" and its file from storage?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Permanently',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteHistoryEntryAndFile(item.id);
+            loadHistory();
+          },
         },
-      });
-    }
+      ]
+    );
+  }, [loadHistory]);
 
-    return actions;
-  }, [menuItem, missing, handleRedownload]);
+  const itemMenuActions: SheetAction[] = selectedItem
+    ? [
+        {
+          key: 'open',
+          label: 'Play / Open Video',
+          icon: 'play-circle-outline',
+          onPress: () => handleOpenVideo(selectedItem),
+        },
+        {
+          key: 'share',
+          label: 'Share Video',
+          icon: 'share-outline',
+          onPress: () => handleShareVideo(selectedItem),
+        },
+        {
+          key: 'copy',
+          label: 'Copy TikTok Link',
+          icon: 'copy-outline',
+          onPress: () => handleCopyLink(selectedItem),
+        },
+        {
+          key: 'redownload',
+          label: 'Redownload in Downloader',
+          icon: 'arrow-down-circle-outline',
+          onPress: () => {
+            router.push({
+              pathname: '/(tabs)',
+              params: { prefill: selectedItem.sourceUrl, ts: String(Date.now()) },
+            });
+          },
+        },
+        {
+          key: 'remove-entry',
+          label: 'Remove from History (Keep File)',
+          icon: 'list-outline',
+          onPress: () => handleRemoveEntryOnly(selectedItem),
+        },
+        {
+          key: 'delete-all',
+          label: 'Delete Permanently from Device',
+          icon: 'trash-outline',
+          destructive: true,
+          onPress: () => handleDeleteFile(selectedItem),
+        },
+      ]
+    : [];
 
-  const renderItem = useCallback(
-    ({ item }: { item: HistoryItem }) =>
-      viewMode === 'grid' ? (
-        <GridItem
-          item={item}
-          missing={Boolean(missing[item.id])}
-          onShare={handleShare}
-          onRedownload={handleRedownload}
-          onMore={handleMore}
-        />
-      ) : (
-        <ListItem
-          item={item}
-          missing={Boolean(missing[item.id])}
-          onShare={handleShare}
-          onRedownload={handleRedownload}
-          onMore={handleMore}
-        />
-      ),
-    [viewMode, missing, handleShare, handleRedownload, handleMore]
-  );
+  const filterMenuActions: SheetAction[] = [
+    {
+      key: 'newest',
+      label: 'Sort: Newest First',
+      icon: 'arrow-down-outline',
+      onPress: () => setSortOption('newest'),
+    },
+    {
+      key: 'oldest',
+      label: 'Sort: Oldest First',
+      icon: 'arrow-up-outline',
+      onPress: () => setSortOption('oldest'),
+    },
+    {
+      key: 'size',
+      label: 'Sort: File Size',
+      icon: 'layers-outline',
+      onPress: () => setSortOption('size'),
+    },
+  ];
+
+  const headerMenuActions: SheetAction[] = [
+    {
+      key: 'refresh',
+      label: 'Refresh Library',
+      icon: 'refresh-outline',
+      onPress: loadHistory,
+    },
+    {
+      key: 'settings',
+      label: 'Storage & Cleanup Settings',
+      icon: 'settings-outline',
+      onPress: () => router.push('/(tabs)/settings'),
+    },
+  ];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* Top Header Bar */}
-      <View style={[styles.topBar, { borderBottomColor: colors.outlineVariant }]}>
-        <View>
-          <Text style={[typography.titleLarge, { color: colors.textPrimary }]}>Library</Text>
-          <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 1 }]}>
-            {items.length} saved · {formatBytes(totalBytes)}
-          </Text>
-        </View>
-
-        <View style={styles.topBarActions}>
-          <Pressable
-            onPress={() => setSearchOpen((prev) => !prev)}
-            style={styles.headerIconBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Search library"
-          >
-            <Ionicons name="search-outline" size={20} color={searchOpen ? colors.primary : colors.textSecondary} />
-          </Pressable>
-
-          <Pressable
-            onPress={() => setViewMode((prev) => (prev === 'grid' ? 'list' : 'grid'))}
-            style={[styles.headerIconBtn, { backgroundColor: colors.surfaceContainer }]}
-            accessibilityRole="button"
-            accessibilityLabel={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}
-          >
-            <Ionicons
-              name={viewMode === 'grid' ? 'list-outline' : 'grid-outline'}
-              size={18}
-              color={colors.primary}
-            />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Expandable Search Input */}
-      {searchOpen && (
-        <View style={[styles.searchBox, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search by title or author..."
-            placeholderTextColor={colors.textMuted}
-            style={[styles.searchInput, { color: colors.textPrimary }]}
-            autoFocus
-          />
-          {query.length > 0 && (
-            <Pressable onPress={() => setQuery('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-            </Pressable>
-          )}
-        </View>
-      )}
-
-      {/* Filter Chips Bar */}
-      <View style={styles.filterBar}>
-        <Pressable
-          onPress={() => setFilterMode('all')}
-          style={[
-            styles.filterChip,
-            {
-              backgroundColor: filterMode === 'all' ? colors.primaryContainer : colors.surfaceContainer,
-              borderColor: filterMode === 'all' ? colors.primary : colors.outlineVariant,
-            },
-          ]}
-        >
-          <Text style={[typography.labelMedium, { color: filterMode === 'all' ? colors.primary : colors.textSecondary }]}>
-            All ({items.length})
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => setFilterMode('available')}
-          style={[
-            styles.filterChip,
-            {
-              backgroundColor: filterMode === 'available' ? colors.primaryContainer : colors.surfaceContainer,
-              borderColor: filterMode === 'available' ? colors.primary : colors.outlineVariant,
-            },
-          ]}
-        >
-          <Text style={[typography.labelMedium, { color: filterMode === 'available' ? colors.primary : colors.textSecondary }]}>
-            On Device
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => setFilterMode('missing')}
-          style={[
-            styles.filterChip,
-            {
-              backgroundColor: filterMode === 'missing' ? colors.warningLight : colors.surfaceContainer,
-              borderColor: filterMode === 'missing' ? colors.warning : colors.outlineVariant,
-            },
-          ]}
-        >
-          <Text style={[typography.labelMedium, { color: filterMode === 'missing' ? colors.warning : colors.textSecondary }]}>
-            Missing
-          </Text>
-        </Pressable>
-      </View>
-
-      {/* Media FlatList (Grid or List) */}
-      {filtered.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <View style={[styles.emptyIconBox, { backgroundColor: colors.surfaceContainer }]}>
-            <Ionicons name="film-outline" size={36} color={colors.textMuted} />
+      {/* 1. TOP HEADER */}
+      <View style={[styles.header, { borderBottomColor: colors.outlineVariant }]}>
+        <View style={styles.headerLeft}>
+          <View style={[styles.logoIconBox, { backgroundColor: colors.primary }]}>
+            <Ionicons name="film" size={16} color="#FFFFFF" />
           </View>
-          <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: spacing.md }]}>
-            {query ? 'No Videos Match Search' : 'Your Library is Empty'}
-          </Text>
-          <Text style={[typography.bodySmall, { color: colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 260 }]}>
-            {query
-              ? 'Try searching with a different title or username.'
-              : 'Downloaded videos will be organized here and saved in your device gallery.'}
-          </Text>
-          {!query && (
-            <Pressable
-              onPress={() => router.push('/(tabs)')}
-              style={[styles.emptyActionBtn, { backgroundColor: colors.primary }]}
-              accessibilityRole="button"
-              accessibilityLabel="Download videos"
-            >
-              <Ionicons name="download-outline" size={18} color="#FFFFFF" />
-              <Text style={[typography.labelMedium, { color: '#FFFFFF', marginLeft: 6 }]}>Download Videos</Text>
-            </Pressable>
-          )}
+          <View style={styles.headerTitleBox}>
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, fontWeight: '800' }]}>
+              ClipSave
+            </Text>
+            <Text style={[typography.caption, { color: colors.accent, fontWeight: '600' }]}>
+              Your saved videos
+            </Text>
+          </View>
         </View>
-      ) : (
-        <FlatList
-          key={viewMode} // Re-mount when switching between 1-column list and 2-column grid
-          data={filtered}
-          numColumns={viewMode === 'grid' ? 2 : 1}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          columnWrapperStyle={viewMode === 'grid' ? styles.gridRowWrapper : undefined}
-          showsVerticalScrollIndicator={false}
-          onEndReached={() => {
-            verifySlice(filtered.slice(0, verifiedRef.current.size + VERIFY_BATCH));
-          }}
-          onEndReachedThreshold={0.5}
-        />
-      )}
 
-      {/* Bottom Sheet Menu */}
+        <View style={styles.headerRight}>
+          <Pressable
+            onPress={() => setShowFilterMenu(true)}
+            style={[styles.headerIconBtn, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Filter videos"
+          >
+            <Ionicons name="filter-outline" size={19} color={colors.textPrimary} />
+          </Pressable>
+
+          <Pressable
+            onPress={() => setShowHeaderMenu(true)}
+            style={[styles.headerIconBtn, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant, marginLeft: spacing.sm }]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+          >
+            <Ionicons name="ellipsis-vertical" size={19} color={colors.textPrimary} />
+          </Pressable>
+        </View>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 2. SEARCH & FILTER BAR */}
+        <View style={styles.searchFilterRow}>
+          <View style={[styles.searchBox, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+            <Ionicons name="search-outline" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.textPrimary }]}
+              placeholder="Search videos..."
+              placeholderTextColor={colors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+              </Pressable>
+            )}
+          </View>
+
+          <Pressable
+            onPress={() => setShowFilterMenu(true)}
+            style={[styles.filterBtn, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
+            accessibilityRole="button"
+          >
+            <Text style={[typography.labelMedium, { color: colors.textPrimary, fontWeight: '700' }]}>Filter</Text>
+            <Ionicons name="chevron-down" size={14} color={colors.textPrimary} style={{ marginLeft: 4 }} />
+          </Pressable>
+        </View>
+
+        {/* 3. STATS DASHBOARD CARD (4 METRIC BOXES) */}
+        <View style={[styles.dashboardCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+          {/* Box 1: Total Saved (Highlighted) */}
+          <View style={[styles.statBox, styles.statBoxPrimary, { backgroundColor: colors.primaryContainer, borderColor: colors.primary }]}>
+            <Text style={[styles.statNumber, { color: colors.primary }]}>{totalSaved}</Text>
+            <Text style={[styles.statLabel, { color: colors.primary }]}>Total Saved</Text>
+          </View>
+
+          {/* Box 2: Videos */}
+          <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{videoCount}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Videos</Text>
+          </View>
+
+          {/* Box 3: Images */}
+          <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{imageCount}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Images</Text>
+          </View>
+
+          {/* Box 4: Storage Used */}
+          <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.statNumber, { color: colors.accent }]}>{storageUsedFormatted}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Storage Used</Text>
+          </View>
+        </View>
+
+        {/* 4. GROUPED TIME SECTIONS */}
+        {groupedSections.length > 0 ? (
+          groupedSections.map((section) => (
+            <View key={section.key} style={styles.sectionBlock}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[typography.titleSmall, { color: colors.textPrimary, fontWeight: '700' }]}>
+                  {section.title}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+              </View>
+
+              <View style={styles.sectionList}>
+                {section.data.map((item) => (
+                  <View
+                    key={item.id}
+                    style={[styles.videoRowCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
+                  >
+                    <View style={[styles.videoThumbBox, { backgroundColor: colors.surface }]}>
+                      {item.thumbnailUrl ? (
+                        <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumb} resizeMode="cover" />
+                      ) : (
+                        <Ionicons name="film-outline" size={22} color={colors.textMuted} />
+                      )}
+                      <View style={styles.playOverlay}>
+                        <Ionicons name="play" size={14} color="#FFFFFF" />
+                      </View>
+                      {item.durationSeconds ? (
+                        <View style={styles.durationOverlayBadge}>
+                          <Text style={styles.durationOverlayText}>{formatDuration(item.durationSeconds)}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.videoMetaCol}>
+                      <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]} numberOfLines={2}>
+                        {item.title || 'TikTok Video'}
+                      </Text>
+                      <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
+                        TikTok • {formatBytes(item.fileSizeBytes)}
+                        {item.durationSeconds ? ` • ${formatDuration(item.durationSeconds)}` : ''}
+                      </Text>
+                      <Text style={[typography.captionMedium, { color: colors.accent, marginTop: 3 }]}>
+                        📅 {new Date(item.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+
+                    <View style={styles.videoActionsRow}>
+                      <Pressable
+                        onPress={() => handleOpenVideo(item)}
+                        style={[styles.openPillBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open video"
+                      >
+                        <Text style={[typography.captionMedium, { color: colors.textPrimary, fontWeight: '700' }]}>
+                          Open
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        onPress={() => {
+                          setSelectedItem(item);
+                          setShowItemMenu(true);
+                        }}
+                        style={styles.moreBtn}
+                        hitSlop={8}
+                        accessibilityLabel="More options"
+                      >
+                        <Ionicons name="ellipsis-vertical" size={18} color={colors.textMuted} />
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))
+        ) : (
+          <View style={[styles.emptyContainer, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+            <View style={[styles.emptyOrb, { backgroundColor: colors.primaryContainer }]}>
+              <Ionicons name="film-outline" size={32} color={colors.primary} />
+            </View>
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: 12, fontWeight: '700' }]}>
+              {searchQuery ? 'No Videos Found' : 'No Saved Videos Yet'}
+            </Text>
+            <Text style={[typography.bodySmall, { color: colors.textMuted, marginTop: 4, textAlign: 'center' }]}>
+              {searchQuery
+                ? 'Try a different search keyword.'
+                : 'Videos you download will appear here automatically.'}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Item Actions Bottom Sheet */}
       <BottomSheetMenu
-        visible={Boolean(menuItem)}
-        title={menuItem?.title || 'Saved Video'}
-        actions={sheetActions}
-        onClose={() => setMenuItem(null)}
+        visible={showItemMenu}
+        title={selectedItem?.title || 'Video Options'}
+        actions={itemMenuActions}
+        onClose={() => {
+          setShowItemMenu(false);
+          setSelectedItem(null);
+        }}
+      />
+
+      {/* Filter Bottom Sheet */}
+      <BottomSheetMenu
+        visible={showFilterMenu}
+        title="Sort & Filter Library"
+        actions={filterMenuActions}
+        onClose={() => setShowFilterMenu(false)}
+      />
+
+      {/* Header Menu Bottom Sheet */}
+      <BottomSheetMenu
+        visible={showHeaderMenu}
+        title="Library Settings"
+        actions={headerMenuActions}
+        onClose={() => setShowHeaderMenu(false)}
       />
     </SafeAreaView>
   );
@@ -518,7 +472,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  topBar: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -526,189 +480,180 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  topBarActions: {
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
   },
-  headerIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: borderRadius.sm,
+  logoIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  searchBox: {
+  headerTitleBox: {
+    marginLeft: 10,
+  },
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: borderRadius.md,
+  },
+  headerIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  searchFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    gap: 8,
+  },
+  searchBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    height: 44,
   },
   searchInput: {
     flex: 1,
-    marginLeft: spacing.sm,
     fontSize: 14,
-    paddingVertical: 4,
+    paddingVertical: 0,
   },
-  filterBar: {
+  filterBtn: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    gap: spacing.xs,
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  filterChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: borderRadius.full,
+  // Dashboard Card
+  dashboardCard: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 10,
+    gap: 8,
+    marginBottom: spacing.lg,
+  },
+  statBox: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statBoxPrimary: {
     borderWidth: 1.5,
   },
-  listContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
+  statNumber: {
+    fontSize: 15,
+    fontWeight: '800',
   },
-  gridRowWrapper: {
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  gridCard: {
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginBottom: spacing.sm,
-  },
-  gridThumbContainer: {
-    width: '100%',
-    height: GRID_ITEM_WIDTH * 1.25, // Sleek vertical short-form aspect ratio
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  gridThumbImage: {
-    width: '100%',
-    height: '100%',
-  },
-  gridDurationPill: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 3,
-  },
-  gridDurationText: {
-    color: '#FFFFFF',
-    fontSize: 9,
+  statLabel: {
+    fontSize: 10,
     fontWeight: '600',
+    marginTop: 2,
   },
-  gridMissingBadge: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 3,
+  // Sections
+  sectionBlock: {
+    marginBottom: spacing.lg,
   },
-  gridMissingText: {
-    color: '#000000',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  gridMetaContainer: {
-    padding: spacing.sm,
-  },
-  gridActionRow: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: spacing.sm,
-  },
-  gridActionPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: borderRadius.sm,
-  },
-  gridMoreBtn: {
-    padding: 4,
-  },
-  listRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
     marginBottom: spacing.sm,
   },
-  listThumb: {
-    width: 48,
-    height: 62,
-    borderRadius: borderRadius.sm,
+  sectionList: {
+    gap: 10,
+  },
+  videoRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: spacing.md,
+  },
+  videoThumbBox: {
+    width: 60,
+    height: 60,
+    borderRadius: 10,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
-  listThumbImg: {
+  videoThumb: {
     width: '100%',
     height: '100%',
   },
-  listDurationBadge: {
+  playOverlay: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  durationOverlayBadge: {
     position: 'absolute',
     bottom: 2,
     right: 2,
     backgroundColor: 'rgba(0,0,0,0.75)',
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: 2,
+    paddingHorizontal: 4,
+    borderRadius: 3,
   },
-  durationText: {
+  durationOverlayText: {
     color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '600',
+    fontSize: 8,
+    fontWeight: '700',
   },
-  listMeta: {
+  videoMetaCol: {
     flex: 1,
     marginLeft: spacing.md,
   },
-  listActions: {
+  videoActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginLeft: spacing.sm,
   },
-  iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
+  openPillBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  moreBtn: {
+    padding: 6,
+    marginLeft: 4,
   },
   emptyContainer: {
-    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: spacing.xxl,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxl,
+    marginTop: spacing.xl,
   },
-  emptyIconBox: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  emptyOrb: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  emptyActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
-    borderRadius: borderRadius.md,
-    marginTop: spacing.lg,
   },
 });

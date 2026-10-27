@@ -8,13 +8,15 @@ import { cleanOrphanedTempFiles } from '../src/services/mediaManager';
 import { getSettings } from '../src/storage/settingsStore';
 import { LaunchAnimation } from '../src/components/LaunchAnimation';
 
+import { StartupAnimationMode } from '../src/types';
+
 // Hold native splash screen until theme and initial settings are fully hydrated
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootNavigation() {
   const { isDark, colors, isThemeReady } = useTheme();
   const [appReady, setAppReady] = useState(false);
-  const [enableLaunchAnimation, setEnableLaunchAnimation] = useState(true);
+  const [startupAnimation, setStartupAnimation] = useState<StartupAnimationMode>('standard');
 
   useEffect(() => {
     async function initialize() {
@@ -24,7 +26,9 @@ function RootNavigation() {
           loadQueueFromStorage(),
           cleanOrphanedTempFiles(),
         ]);
-        setEnableLaunchAnimation(settings.enableLaunchAnimation !== false);
+        const mode: StartupAnimationMode =
+          settings.startupAnimation || (settings.enableLaunchAnimation !== false ? 'standard' : 'off');
+        setStartupAnimation(mode);
       } catch {
         // Fallback safely
       } finally {
@@ -38,12 +42,12 @@ function RootNavigation() {
     SplashScreen.hideAsync().catch(() => {});
   };
 
-  // If launch animation is disabled, reveal app as soon as theme & initial state are hydrated
+  // If startup animation is off, reveal app immediately once theme & initial state are hydrated
   useEffect(() => {
-    if (appReady && isThemeReady && !enableLaunchAnimation) {
+    if (appReady && isThemeReady && startupAnimation === 'off') {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [appReady, isThemeReady, enableLaunchAnimation]);
+  }, [appReady, isThemeReady, startupAnimation]);
 
   return (
     <>
@@ -67,9 +71,9 @@ function RootNavigation() {
         <Stack.Screen name="about" options={{ headerShown: false }} />
       </Stack>
 
-      {appReady && isThemeReady && enableLaunchAnimation && (
+      {appReady && isThemeReady && startupAnimation !== 'off' && (
         <LaunchAnimation
-          enabled={enableLaunchAnimation}
+          mode={startupAnimation}
           onFinish={handleAnimationFinish}
         />
       )}

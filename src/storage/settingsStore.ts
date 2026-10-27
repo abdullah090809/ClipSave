@@ -52,6 +52,7 @@ export function getDefaultBackendUrl(): string {
 
 export const defaultSettings: AppSettings = {
   themeMode: 'system',
+  startupAnimation: 'standard',
   autoDownloadOnResolve: false,
   saveToGallery: true,
   wifiOnly: false,
@@ -76,7 +77,15 @@ export const getSettings = async (): Promise<AppSettings> => {
       return memoryCache;
     }
     const parsed = JSON.parse(raw);
-    const settings = { ...defaultSettings, ...parsed };
+    const migratedStartupAnimation =
+      parsed.startupAnimation ||
+      (parsed.enableLaunchAnimation === false ? 'off' : 'standard');
+
+    const settings: AppSettings = {
+      ...defaultSettings,
+      ...parsed,
+      startupAnimation: migratedStartupAnimation,
+    };
 
     // Self-healing migration: if the stored URL is loopback (127.0.0.1 or localhost),
     // but the current environment provides a non-loopback LAN IP (e.g. 192.168.1.21),

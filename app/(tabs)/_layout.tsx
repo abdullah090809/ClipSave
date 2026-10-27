@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -9,10 +9,32 @@ import { jobBucket } from '../../src/utils/jobDisplay';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
-const icon =
-  (on: IconName, off: IconName) =>
-  ({ color, focused }: { color: any; focused: boolean }) =>
-    <Ionicons name={focused ? on : off} size={23} color={color} />;
+function TabIcon({
+  focused,
+  activeIcon,
+  inactiveIcon,
+  color,
+}: {
+  focused: boolean;
+  activeIcon: IconName;
+  inactiveIcon: IconName;
+  color: any;
+}) {
+  return (
+    <View style={styles.iconContainer}>
+      <Ionicons
+        name={focused ? activeIcon : inactiveIcon}
+        size={23}
+        color={color}
+      />
+      {focused ? (
+        <View style={[styles.activeIndicator, { backgroundColor: color }]} />
+      ) : (
+        <View style={styles.inactiveSpacer} />
+      )}
+    </View>
+  );
+}
 
 export default function TabLayout() {
   const { colors } = useTheme();
@@ -30,10 +52,13 @@ export default function TabLayout() {
     });
   }, []);
 
-  // Safe bottom padding guarantees the navigation bar is elevated completely
-  // above Android system navigation bars and gesture pill bars on any device
-  const bottomInset = Math.max(insets.bottom, 12);
-  const barHeight = 54 + bottomInset;
+  // Safe bottom padding ensures elevation above Android 3-button & gesture pill bars
+  const bottomInset = Math.max(insets.bottom, 10);
+  const barHeight = Platform.select({
+    ios: 58 + insets.bottom,
+    android: 62 + bottomInset,
+    default: 60,
+  });
 
   return (
     <Tabs
@@ -47,31 +72,55 @@ export default function TabLayout() {
           height: barHeight,
           paddingBottom: bottomInset,
           paddingTop: 8,
-          elevation: 10,
+          elevation: 12,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          letterSpacing: 0.2,
+          marginTop: -2,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Downloader',
-          tabBarAccessibilityLabel: 'Central downloader orb',
-          tabBarIcon: icon('disc', 'disc-outline'),
+          title: 'Home',
+          tabBarAccessibilityLabel: 'Home and video downloader',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              focused={focused}
+              activeIcon="home"
+              inactiveIcon="home-outline"
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="queue"
         options={{
-          title: 'Activity',
-          tabBarAccessibilityLabel: `Activity and transfer queue, ${activeCount} active`,
-          tabBarIcon: icon('swap-vertical', 'swap-vertical-outline'),
+          title: 'Queue',
+          tabBarAccessibilityLabel: `Download Queue, ${activeCount} active`,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              focused={focused}
+              activeIcon="download"
+              inactiveIcon="download-outline"
+              color={color}
+            />
+          ),
           ...(activeCount > 0
             ? {
                 tabBarBadge: activeCount,
-                tabBarBadgeStyle: { backgroundColor: colors.primary, color: '#FFFFFF', fontSize: 11 },
+                tabBarBadgeStyle: {
+                  backgroundColor: colors.primary,
+                  color: '#FFFFFF',
+                  fontSize: 11,
+                  fontWeight: '700',
+                },
               }
             : {}),
         }}
@@ -79,19 +128,52 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'Videos',
-          tabBarAccessibilityLabel: 'Saved video library',
-          tabBarIcon: icon('film', 'film-outline'),
+          title: 'History',
+          tabBarAccessibilityLabel: 'Downloaded videos history',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              focused={focused}
+              activeIcon="time"
+              inactiveIcon="time-outline"
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
-          tabBarAccessibilityLabel: 'Settings and preferences',
-          tabBarIcon: icon('settings', 'settings-outline'),
+          tabBarAccessibilityLabel: 'Preferences and settings',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              focused={focused}
+              activeIcon="settings"
+              inactiveIcon="settings-outline"
+              color={color}
+            />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 32,
+    width: 44,
+  },
+  activeIndicator: {
+    width: 18,
+    height: 3,
+    borderRadius: 2,
+    marginTop: 3,
+  },
+  inactiveSpacer: {
+    height: 3,
+    marginTop: 3,
+  },
+});

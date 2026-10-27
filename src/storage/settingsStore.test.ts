@@ -48,4 +48,18 @@ describe('settingsStore', () => {
     const retrievedReenabled = await getSettings();
     expect(retrievedReenabled.enableLaunchAnimation).toBe(true);
   });
+
+  test('UT-SET-05: startupAnimation defaults to standard and persists off/subtle/standard', async () => {
+    const initial = await getSettings();
+    expect(initial.startupAnimation).toBe('standard');
+
+    const subtle = await saveSettings({ startupAnimation: 'subtle' });
+    expect(subtle.startupAnimation).toBe('subtle');
+
+    const off = await saveSettings({ startupAnimation: 'off' });
+    expect(off.startupAnimation).toBe('off');
+
+    const retrieved = await getSettings();
+    expect(retrieved.startupAnimation).toBe('off');
+  });
 });

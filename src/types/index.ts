@@ -59,15 +59,18 @@ export interface HistoryItem {
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+export type StartupAnimationMode = 'off' | 'subtle' | 'standard';
+
 export interface AppSettings {
   themeMode: ThemeMode;
+  startupAnimation: StartupAnimationMode;
   autoDownloadOnResolve: boolean;
   saveToGallery: boolean;
   wifiOnly: boolean;
   maxConcurrentDownloads: number;
   useMockResolver: boolean;
   backendBaseUrl: string;
-  enableLaunchAnimation: boolean;
+  enableLaunchAnimation?: boolean;
 }
 
 export interface ResolveError {

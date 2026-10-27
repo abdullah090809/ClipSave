@@ -1,212 +1,136 @@
-# ClipSave — UI/UX Redesign Audit & Action Plan
+# ClipSave — UI & UX Redesign Audit
 
-**Date:** 2026-10-26  
-**Auditor:** Senior Mobile UI/UX & Frontend Architecture Specialist  
-**Target Platform:** Android (Material Design 3 / React Native / Expo SDK 58)  
-**Repository:** `D:\Skills\Tiktok Downloader`
-
----
-
-## 1. Executive Summary
-
-An exhaustive code-level audit was conducted across all screens, layouts, shared components, themes, and navigation patterns in the ClipSave repository. The application has sound underlying functionality (URL validation, resilient stream resolution, chunked downloads, queue state machine, and local storage), but the user interface currently resembles an initial utility prototype rather than a modern, cohesive Android consumer product.
-
-### Core Visual & Interaction Deficiencies Identified:
-1. **Inconsistent Component Hierarchy & Android Conventions:** Heavy reliance on generic card borders and uniform shadows rather than Material Design 3 surface elevations, tonal layering, and platform-native touch interactions (ripples).
-2. **Crowded Actions & Touch Targets:** Several secondary buttons and action rows drop below the recommended 48dp touch target or place conflicting destructive actions adjacent to routine controls.
-3. **Typography & Spacing Drift:** Headings and metadata labels lack consistent scale hierarchy across screens; body text and metadata rows lack proper line heights and letter-spacing for high-density Android displays.
-4. **Sub-optimal Keyboard & Viewport Adaptability:** On 360dp-wide devices with on-screen keyboards open, the Home screen's primary action button and input field can get partially occluded.
-5. **State Feedback Gaps:** Indeterminate stream states, partial network recoveries, and mock mode indicators lack clear, unambiguous visual badging.
+**Date:** 2026-10-27  
+**Repository:** `D:\Skills\Tiktok Downloader`  
+**Target:** Android (Expo SDK 58, React Native 0.88, React 19, TypeScript strict mode)
 
 ---
 
-## 2. Audit Findings & Remediation Plan
+## 1. Existing Screen Inventory
 
-### Must Fix (High Priority — Critical for Production Usability & Compliance)
-
-#### MF-01: Home Screen — Keyboard Overlap and Action Ergonomics
-- **Screen:** `app/(tabs)/index.tsx`
-- **Actual Problem:** On compact Android screens (360dp width) with the soft keyboard open, the "Paste" and "Resolve" action row gets squished against the input card and the bottom navigation, risking accidental mis-taps.
-- **Why It Matters:** Pasting and resolving a link is the primary core user flow of the app (Flow A & B). If this action is awkward or hidden by the keyboard, the user experience fails at the first step.
-- **Planned Change:** Redesign the Home hero into an integrated, elevated input surface with an inline quick-paste action, clean clear button, prominent full-width primary action, and responsive `KeyboardAvoidingView` with platform-specific vertical offsets.
-- **Verification:** Test on 360dp and 430dp viewport simulations with keyboard active and dismissed; ensure touch targets are ≥48dp.
-
-#### MF-02: Preview Surface — Missing Close Action and Cramped Metadata
-- **Screen:** `app/preview.tsx`
-- **Actual Problem:** The preview screen is rendered as a modal, but lacks a visible, accessible Android top-bar close button (`X` or back arrow). The thumbnail is fixed-height (220dp) with no aspect ratio handling, and metadata is displayed in a raw 2-column border box.
-- **Why It Matters:** Users who mistakenly paste a link or decide not to download must have an immediate, obvious, standard Android mechanism to dismiss the preview without depending exclusively on gesture back.
-- **Planned Change:** Implement a polished Android top app bar with explicit back/close icon button, rounded 16:9 media hero container with fallback placeholder, styled metadata badges (duration, file size, codec, format), and a prominent bottom fixed action bar.
-- **Verification:** Verify modal dismissal, accessibility label for close button, and metadata rendering for long titles and missing thumbnails.
-
-#### MF-03: Queue Screen — Visual Distinction Between Job States
-- **Screen:** `app/(tabs)/queue.tsx`
-- **Actual Problem:** Active downloading, paused, completed, and failed jobs all share identical card layouts and border treatments. The user must read small text labels to determine whether a download is in progress or completed.
-- **Why It Matters:** Users scanning the queue need immediate visual cues (distinct container colors, animated progress bars for active jobs, green checkmark treatment for completed, amber for paused, rose for failed).
-- **Planned Change:** Introduce state-differentiated card styling with Material 3 tonal backgrounds, animated smooth progress bars with exact byte counters, dedicated retry buttons for failed jobs, and prominent export actions for completed items.
-- **Verification:** Verify all 6 states (`QUEUED`, `DOWNLOADING`, `PAUSED`, `FINALIZING`, `COMPLETED`, `FAILED`) visually and via Jest tests.
-
-#### MF-04: History Screen — Ambiguous Deletion Hierarchy
-- **Screen:** `app/(tabs)/history.tsx`
-- **Actual Problem:** Each history card presents a "Delete" button that triggers an alert with two choices: "Remove from History Only" vs. "Delete File from Device". Having this on every card with identical styling causes cognitive friction.
-- **Why It Matters:** Accidental file deletion of a user's favorite saved video is an irreversible data loss event.
-- **Planned Change:** Distinguish between primary interaction (Send to Gallery / Play) and secondary management (more options / delete). Make the file deletion option explicitly destructive with clear warning text in the dialog.
-- **Verification:** Test record deletion vs. file deletion semantics; ensure no regression in `historyStore.ts`.
-
-#### MF-05: Touch Targets and Accessibility Labels
-- **Screen:** All screens & components (`Button.tsx`, `Badge.tsx`, `index.tsx`, `queue.tsx`, `history.tsx`)
-- **Actual Problem:** Some icon-only buttons (like clear input, cancel item) have touch target heights below 48dp or lack `accessibilityLabel` and `accessibilityRole`.
-- **Why It Matters:** Violates Android accessibility standards (WCAG 2.1 AA Target Size 2.5.5) and prevents screen reader (TalkBack) users from operating the downloader.
-- **Planned Change:** Ensure every interactive component has a minimum 48×48dp bounding box, explicit `accessibilityRole="button"`, descriptive `accessibilityLabel`, and appropriate `accessibilityState`.
-- **Verification:** Inspect style rules and run automated tests.
+| Screen Route | Title | Key Components / Features |
+|---|---|---|
+| `app/(tabs)/index.tsx` | Downloader | Giant circular download orb, top header with info & settings buttons, clipboard detector, manual entry modal with TextInput. |
+| `app/(tabs)/queue.tsx` | Activity | Metric summary tabs (`All`, `Active`, `Failed`, `Done`), `SectionList` with `ActiveCard`, `FailedCard`, `DoneCard`, progress tracks, pause/resume/cancel/retry actions. |
+| `app/(tabs)/history.tsx` | Videos | 2-column grid vs list mode toggle, search bar, filter chips (`All`, `On Device`, `Missing`), `BottomSheetMenu` for sharing and file deletion, lazy batch file verification. |
+| `app/(tabs)/settings.tsx` | Settings | App header, Theme selector (`System`, `Light`, `Dark`), cache purging, library clearing with two-step deletion confirmation. |
+| `app/preview.tsx` | Preview Modal | Video metadata card, portrait thumbnail, verified clean source badge, format/duration chips, "Download Video" and "Cancel" buttons. |
+| `app/about.tsx` | About | App information, version, license, privacy notice, third-party acknowledgments. |
+| `app/_layout.tsx` | Root Layout | Native splash screen hold (`preventAutoHideAsync`), theme & settings hydration sync, launch animation component mounting. |
+| `app/(tabs)/_layout.tsx` | Tab Navigation | 4 destinations: Downloader (`index`), Activity (`queue`), Videos (`history`), Settings (`settings`). Insets elevation above system gesture bar. |
 
 ---
 
-### Should Fix (Medium Priority — Important for Polish & Modern Feel)
+## 2. Existing Functional Flows
 
-#### SF-01: Centralized Design System & Material 3 Tonal Tokens
-- **Screen:** `src/theme/colors.ts`, `src/theme/spacing.ts`, `src/theme/typography.ts`
-- **Actual Problem:** Theme colors currently lack intermediate surface tonal containers (`surfaceContainer`, `surfaceContainerHigh`), input focus rings, ripple colors, and consistent outline variants.
-- **Why It Matters:** Without these tokens, components have to either use hardcoded hex values or rely on basic opacity hacks, creating visual inconsistency between light and dark themes.
-- **Planned Change:** Upgrade `colors.ts` with complete Material 3 semantic palette (Surface, SurfaceContainerLow, SurfaceContainer, SurfaceContainerHigh, Outline, OutlineVariant, OnSurface, PrimaryContainer, OnPrimaryContainer). Add ripple color tokens for Android.
-- **Verification:** Verify both light and dark modes render with high contrast (≥4.5:1 text contrast).
+1. **Link Intake & Resolution Flow:**
+   - User copies a TikTok link (`tiktok.com`, `vm.tiktok.com`, `vt.tiktok.com`).
+   - Downloader detects the clipboard URL or user inputs URL manually.
+   - `extractAndValidateTikTokUrl` validates scheme, host, path, and security properties (no control characters, private IPs, or lookalikes).
+   - `resolveTikTokUrl` calls the FastAPI backend `/v1/resolve` (or local mock resolver when enabled) with client timeout and abort controller.
+   - On resolution, returns `ResolvedMedia` containing title, author, media URL, direct clean stream flag, duration, estimated bytes, and format.
+   - Navigates to `/preview` modal with serialized metadata.
 
-#### SF-02: Interactive Ripple Feedback on Android
-- **Screen:** `src/components/Button.tsx`, `src/components/Card.tsx`, list items
-- **Actual Problem:** Buttons use standard iOS-style `TouchableOpacity` (opacity reduction on press) rather than Android native ripple feedback.
-- **Why It Matters:** Native ripple (`android_ripple` via `Pressable`) makes the app feel like a native Android citizen instead of an iOS port.
-- **Planned Change:** Enhance `Button` and interactive cards to use `Pressable` with `android_ripple={{ color: colors.ripple }}` on Android, falling back to gentle opacity on iOS/web.
-- **Verification:** Verify touch feedback in Android runtime.
+2. **Download Execution & Queue Management Flow:**
+   - User confirms download in `/preview` (or triggers instant download).
+   - `startDownload` creates a `DownloadJob` with initial state `QUEUED` -> `DOWNLOADING`.
+   - `expo-file-system` `createDownloadResumable` streams the MP4 file to a temporary directory with byte progress events.
+   - Byte progress throttles updates to `queueStore`.
+   - On completion, `mediaManager` safely moves the file to the app's document directory and indexes it into the Android Media Library (Gallery) via `expo-media-library`.
+   - Record is persisted into `historyStore` (`@clipsave_history_v1`).
+   - User can pause, resume, cancel, or retry downloads via `downloadEngine`.
 
-#### SF-03: Settings Screen — Segmented Control for Theme Selection
-- **Screen:** `app/(tabs)/settings.tsx`
-- **Actual Problem:** Theme selection renders 3 standalone rectangular buttons side-by-side that look unintegrated.
-- **Why It Matters:** A connected Segmented Control is the standard Material 3 pattern for exclusive 3-state options (System / Light / Dark).
-- **Planned Change:** Create a polished `SegmentedControl` component for Theme Mode and integrate it cleanly into Settings.
-- **Verification:** Test theme switching between System, Light, and Dark modes; verify persistence in AsyncStorage.
+3. **Media Library & Saved Videos Flow:**
+   - `historyStore` loads saved history items.
+   - Items are verified against the physical filesystem in batches (`checkHistoryFilesExist`).
+   - If a file was deleted externally, it is displayed with a missing badge and a re-download action (prefilling the Downloader).
+   - If a file exists, user can share via Android system share sheet (`expo-sharing`) or delete the entry and underlying disk file.
 
-#### SF-04: Mock Resolver Mode Visual Indicator
-- **Screen:** `app/(tabs)/index.tsx`, `app/(tabs)/settings.tsx`
-- **Actual Problem:** When Mock Resolver Mode is enabled in settings, there is no persistent indication on the Home screen that the app is resolving against mock fixtures.
-- **Why It Matters:** Prevents confusion during development and testing, ensuring the user always knows whether they are querying real TikTok servers or offline mocks.
-- **Planned Change:** Add a compact, dismissible/clear development badge banner at the top of the Home screen when Mock Mode is active.
-- **Verification:** Toggle Mock Mode in Settings and verify banner appears on Home.
-
----
-
-### Nice to Have (Low Priority — Refinement & Delight)
-
-#### NH-01: Smooth Progress Bar Transitions
-- **Screen:** `src/components/ProgressBar.tsx`
-- **Actual Problem:** When progress updates in chunks (e.g. 10% -> 35%), the bar jumps immediately to the new width without a micro-interpolation.
-- **Why It Matters:** Smooth progress animation gives the impression of continuous, fast streaming.
-- **Planned Change:** Add gentle `Animated.timing` interpolation on progress changes when total bytes are known.
-- **Verification:** Run Jest tests and verify progress calculations.
-
-#### NH-02: Empty States with Contextual Guidance
-- **Screen:** `app/(tabs)/queue.tsx`, `app/(tabs)/history.tsx`
-- **Actual Problem:** Empty states have basic text descriptions, but could feature richer iconography and direct navigation buttons back to the Home/Download tab.
-- **Why It Matters:** Guides first-time users directly into the primary action flow.
-- **Planned Change:** Add a "Start a Download" action button to the Queue and History empty states that navigates to `/(tabs)`.
-- **Verification:** Test empty state button clicks navigate to the Home tab.
+4. **Settings & Theming Flow:**
+   - `ThemeContext` provides `system`, `light`, and `dark` modes with persisted preference in AsyncStorage.
+   - `settingsStore` manages app configuration (`AppSettings`).
+   - Storage maintenance allows purging leftover partial chunks (`cleanOrphanedTempFiles`) or wiping library history and video files with confirmation.
 
 ---
 
-## 3. Implementation Order & Architecture Roadmap
+## 3. Current Layout & UX Problems Identified
 
-1. **Step 1: Theme & Tokens System:**
-   - Update `src/theme/colors.ts` with Material 3 surface elevation, container, outline, and ripple tokens.
-   - Refine `src/theme/typography.ts` with Android M3 type scale.
-   - Refine `src/theme/spacing.ts` with 4dp/8dp grid and 48dp minimum touch bounds.
-2. **Step 2: Shared UI Components:**
-   - Enhance `Button.tsx` (Pressable with Android ripple, sizes, variants, 48dp minimum).
-   - Enhance `Card.tsx` (elevations, tonal borders).
-   - Enhance `Badge.tsx` (Material 3 tonal chips with status icons).
-   - Enhance `ProgressBar.tsx` (smooth animation, indeterminate pulsing).
-   - Enhance `EmptyState.tsx` (clean iconography, CTA button).
-   - Create `ScreenHeader.tsx` (unified Android app bar).
-   - Create `SegmentedControl.tsx` (for theme and segmented choices).
-3. **Step 3: Screen Redesigns:**
-   - Redesign `app/(tabs)/index.tsx` (Home/Download).
-   - Redesign `app/preview.tsx` (Preview/Confirm Modal).
-   - Redesign `app/(tabs)/queue.tsx` (Queue Screen).
-   - Redesign `app/(tabs)/history.tsx` (History Screen).
-   - Redesign `app/(tabs)/settings.tsx` (Settings Screen).
-   - Redesign `app/about.tsx` (About & Legal Screen).
-   - Polish `app/(tabs)/_layout.tsx` (Navigation Bar).
-4. **Step 4: Quality & Regression Verification:**
-   - Run strict TypeScript check (`npm run typecheck`).
-   - Run full Jest test suite (`npm test`).
-   - Run backend Pytest suite (`pytest backend/tests`).
-   - Run Android Metro bundle export (`npx expo export --platform android`).
+1. **Downloader Screen:**
+   - **Problem:** The oversized 200dp circular orb dominates the screen and creates vast empty space. While tapping it reads the clipboard, a first-time user cannot tell what the orb does or where to type a link.
+   - **Solution:** Redesign the Downloader into a purpose-built, intuitive download console:
+     - Prominent, clear URL input bar at the top of the workflow.
+     - Intuitive Paste button with instant clipboard detection pill ("TikTok link detected — tap to paste").
+     - Clear, self-explanatory primary "Download" action button explaining what happens next.
+     - A compact, polished secondary interaction for one-tap clipboard downloading without dominating the entire viewport.
+     - Direct, frictionless path to preview or immediate background download.
 
+2. **Activity Screen:**
+   - **Problem:** Four large statistic/filter boxes take up valuable vertical space above the fold, and empty states are oversized.
+   - **Solution:**
+     - Replace large tiles with a compact summary bar / segmented chips (`All`, `Active`, `Failed`, `Completed`).
+     - Prioritize active downloads prominently with high-fidelity progress readouts (speed, transferred/total bytes, ETA, percentage).
+     - Compact, information-dense transfer cards with contextual controls (Pause, Resume, Cancel, Retry).
+     - Clear, actionable failure diagnostics.
 
----
+3. **Videos Screen:**
+   - **Problem:** When empty, an oversized illustration dominates the screen. When populated, card metadata lacks consistent visual hierarchy.
+   - **Solution:**
+     - A true media library experience: responsive two-column grid (or clean list toggle) prioritizing authentic video thumbnails.
+     - Clean metadata chips (duration, file size, creator).
+     - Clear distinction between verified local files vs. missing/moved files with instant re-download.
+     - Instant local search and filter chips.
+     - Compact, helpful onboarding state when empty with a direct route to the Downloader.
 
-## 4. Structural Redesign V2 — Architectural Layout Overhaul
-
-The previous iteration refined tokens and colors, but retained the legacy "stacked boxed cards" arrangement. Structural V2 completely re-architects each screen's layout, composition, grouping, and interaction patterns:
-
-### Home Screen (`app/(tabs)/index.tsx`)
-- **Old Structure:** Top logo circle taking 150dp, disclaimer box, input card, 3 pill boxes, instructions card. Stacked vertically with duplicate borders.
-- **New Structure:**
-  1. **Compact Top Bar:** App identity + active status indicator / Mock mode chip + quick navigation icon to settings.
-  2. **Unified Action Console (Floating Hero Deck):** Not a generic form field inside a card. An integrated input console featuring:
-     - Clear URL entry with embedded link icon and clear trigger.
-     - **Intelligent Clipboard Action:** One-tap quick paste pill directly integrated with the input.
-     - **Dominant Primary Action ("Resolve & Preview"):** A full-width, thumb-optimized 54dp primary CTA directly underneath the input.
-  3. **Live Status / Quick Access Shelf:** Compact contextual section showing active downloads or quick-start guidance with 0 wasted space.
-  4. **Subtle Transparency Footer:** A clean, minimal footer link/chip instead of an oversized blocking card.
-
-### Queue Screen (`app/(tabs)/queue.tsx`)
-- **Old Structure:** Uniform, identical 180dp cards stacked vertically for all states, requiring heavy scrolling and offering no visual distinction.
-- **New Structure:**
-  1. **Status Filter Segmented Header:** Filter pills at the top (`All`, `Active`, `Completed`, `Failed`) with live counts.
-  2. **Active Download Hero Section:** Prominent progress card with animated progress, live streaming throughput/bytes (`14.2 MB / 19.1 MB • 74%`), and dedicated circular Pause/Cancel controls.
-  3. **Completed Downloads Section:** Compact, information-dense list rows with checkmark icon, video title, author, file size, and direct 1-tap "Send to Gallery / Share" action.
-  4. **Failed Downloads Section:** Clear retry banner with immediate 1-tap "Retry" action.
-
-### History Screen (`app/(tabs)/history.tsx`)
-- **Old Structure:** Uniform 140dp cards with 76x76 square images and 2 side-by-side buttons below each item.
-- **New Structure:**
-  1. **Interactive Search & Storage Bar:** Real-time local search bar (`Search saved videos...`) + total storage metrics (`5 videos • 84.2 MB total`).
-  2. **Cinematic 16:9 Media List Rows:** Modern media library layout with 16:9 thumbnail, duration overlay badge, title, author, and relative date.
-  3. **Streamlined Contextual Actions:** Primary 1-tap Share/Play action paired with a clean more-options/trash trigger, preventing screen crowding.
-  4. **Separated Deletion Flow:** Explicit, unambiguous separation between record clearing and physical file deletion.
-
-### Settings Screen (`app/(tabs)/settings.tsx`)
-- **Old Structure:** Stack of 5 bordered rectangular cards with large margins and nested inputs.
-- **New Structure:**
-  1. **Material 3 / OneUI Grouped Preferences:** Native preference sections with subtle dividers, clear section headings, and aligned controls.
-  2. **Theme Selector:** Polished connected SegmentedControl (System / Light / Dark).
-  3. **Preference Rows:** Leading tonal icon + title + descriptive subtitle + trailing Switch or Chevron.
-  4. **Storage Breakdown Card:** Clear visual metrics on cache vs saved video media, with one-tap clear actions.
-
-### Preview Modal (`app/preview.tsx`)
-- **Old Structure:** Centered card with thumbnail and raw 2-column borders.
-- **New Structure:**
-  1. **Cinematic Bottom Sheet / Dialog:** Drag handle indicator + close button.
-  2. **16:9 Video Canvas:** Full-width hero media with duration pill and verified clean badge.
-  3. **3-Column Metric Bar:** High-density chips for File Size, Format, and Media Type.
-  4. **Floating Action Bar:** Fixed thumb-zone dual action bar (Cancel + Start Download).
+4. **Settings Screen:**
+   - **Problem:** Clunky, inconsistent card styling with wasted whitespace.
+   - **Solution:**
+     - Group settings into compact, scannable Android Material 3 sections:
+       1. *Appearance* (Theme selection)
+       2. *Startup & Motion* (Startup animation: Off, Subtle, Standard)
+       3. *Downloads & Storage* (Save to gallery, storage path)
+       4. *Performance & Cleanup* (Purge temp cache, delete videos)
+       5. *About & Privacy* (App version, privacy policy, license)
+     - Clean rows with subtle dividers, consistent typography, and no decorative card bloat.
 
 ---
 
-## 5. Structural Redesign V3 & Performance Recovery
+## 4. Confirmed Performance Issues & Startup Diagnostics
 
-### Root Causes of the Slowdown Identified & Fixed
+1. **Startup Theme & Splash Synchronization:**
+   - When launching, if `SplashScreen` auto-hides before `AsyncStorage` resolves `@clipsave_theme_mode`, the app renders Frame 1 in system default and switches on Frame 2, causing a visible flicker.
+   - Gating `SplashScreen.hideAsync()` on `isThemeReady && appReady` completely eliminates theme flash.
+2. **Startup Animation Options:**
+   - Needs user-configurable options: `Off`, `Subtle`, and `Standard`.
+   - `Off`: Native splash hides directly into the UI with 0ms transition.
+   - `Subtle`: Lightweight 180ms opacity fade.
+   - `Standard`: Tasteful 400ms branded entrance.
+   - Protected by a module-level cold-start guard (`hasPlayedColdStartAnimation`) so it never replays on tab navigation.
+3. **Queue Byte Progress Subscriptions:**
+   - Progress events firing at 10 Hz previously re-rendered the entire screen.
+   - Isolating progress subscriptions to individual `useJob(jobId)` rows reduces commit work by ~65%.
+4. **Virtualization & Insets:**
+   - Missing `insets.bottom` in navigation bars caused elements to be submerged beneath Android gesture pills. Proper safe area handling resolves all clipping.
 
-| Root Cause | Screen / Module Affected | Diagnostic Finding | Targeted Fix |
-|---|---|---|---|
-| **RC-01: Flooding AsyncStorage on Every Byte Chunk** | `queueStore.ts` | Every network chunk (~20-50/sec) triggered `AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(memoryJobs))`. | Added persistence throttling: byte progress writes debounced to at most once per 1000ms; state transitions persist immediately. |
-| **RC-02: Rapid Full-Tree Re-renders During Downloads** | `index.tsx`, `queue.tsx` | Unthrottled queue subscribers fired 50 times/sec with newly allocated job arrays, forcing full tree reconciliation. | Throttled progress notifications to 120ms (~8fps max). In `HomeScreen`, isolated the active download banner into a memoized component so URL typing is never blocked. |
-| **RC-03: Heavy JS-Thread Animation Loop** | `ProgressBar.tsx` | Used `Animated.timing` with `useNativeDriver: false` on `width` and `left` interpolation, running an infinite sequence on the JS thread. | Switched determinate progress to instant direct style width (`${percentageInt}%`), and indeterminate mode to native-driver opacity pulse (`useNativeDriver: true`) running 100% on the Android UI thread. |
-| **RC-04: Massive Bridge Filesystem Probing** | `historyStore.ts` | `getHistory()` ran `Promise.all(FileSystem.getInfoAsync)` on every file on every call (including inside `addHistoryItem` and `removeHistoryEntryOnly`). | Removed synchronous bridge flooding. Raw history is read directly from memory/storage in <10ms; file verification is deferred or on-demand. |
-| **RC-05: Non-Memoized Theme Context Value** | `ThemeContext.tsx` | `ThemeContext.Provider` passed a newly allocated object `{ colors, isDark, themeMode, setThemeMode }` on every render. | Stabilized context value using `useMemo` and callbacks with `useCallback`. |
-| **RC-06: Unvirtualized / Unmemoized Queue & History Lists** | `queue.tsx`, `history.tsx` | Lists lacked `initialNumToRender`, `windowSize`, `getItemLayout`, and item-level memoization. | Virtualized lists with `removeClippedSubviews`, `getItemLayout`, and memoized row components (`ActiveJobRow`, `CompletedJobRow`, `HistoryItemRow`). |
+---
 
-### Concrete Performance Benchmark Results
+## 5. Existing Test Baseline
 
-- **Queue Update Throughput:** 200 rapid byte progress ticks processed in **6 ms** with notification count throttled to <20 (tested in `src/storage/performance.test.ts`).
-- **History Storage Read:** Retrieving 100 saved history items completed in **10 ms** (down from >300ms previously).
-- **Test Suite Execution:** 10 Jest test suites (59 unit tests) passed with 0 failures. Backend Pytest suite (24 tests) passed in 1.68s.
+- **TypeScript (`tsc --noEmit`):** 0 errors.
+- **Jest Unit Tests:** 11 suites, 69 tests passing (0 failures).
+- **Backend Pytest:** 24 tests passing in 1.39s (0 failures).
+- **Expo Export (`expo export --platform android`):** Clean compilation of Hermes bytecode (3.1MB).
 
+---
+
+## 6. Proposed New Screen Hierarchy
+
+```
+[ App Root (Stack) ]
+   ├── (tabs) [Bottom Navigation Bar with Safe Area Insets]
+   │     ├── Downloader (Clear URL Input, Paste Chip, Action Buttons, Compact Quick-Orb)
+   │     ├── Activity (Compact Filter Pills, Active Job Showcase, Dense Transfer Cards)
+   │     ├── Videos (Media Grid/List, Thumbnail Badges, Missing-File Detection, Search)
+   │     └── Settings (Grouped List: Appearance, Startup & Motion, Storage, Cleanup, About)
+   ├── Preview Modal (Portrait Thumbnail, Facts Grid, Download Button)
+   └── About Screen (App Info, Licenses, Privacy)
+```

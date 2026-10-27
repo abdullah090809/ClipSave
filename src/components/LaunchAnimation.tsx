@@ -3,9 +3,10 @@ import { View, StyleSheet, Animated, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { typography } from '../theme/typography';
+import { StartupAnimationMode } from '../types';
 
 interface LaunchAnimationProps {
-  enabled: boolean;
+  mode: StartupAnimationMode;
   onFinish: () => void;
 }
 
@@ -16,39 +17,51 @@ export function resetColdStartAnimationForTesting() {
   hasPlayedColdStartAnimation = false;
 }
 
-export const LaunchAnimation: React.FC<LaunchAnimationProps> = ({ enabled, onFinish }) => {
+export const LaunchAnimation: React.FC<LaunchAnimationProps> = ({ mode, onFinish }) => {
   const { colors } = useTheme();
-  const [visible, setVisible] = useState(enabled && !hasPlayedColdStartAnimation);
+  const shouldPlay = mode !== 'off' && !hasPlayedColdStartAnimation;
+  const [visible, setVisible] = useState(shouldPlay);
 
   const opacityAnim = useRef(new Animated.Value(1)).current;
-  const scaleAnim = useRef(new Animated.Value(0.92)).current;
+  const scaleAnim = useRef(new Animated.Value(mode === 'subtle' ? 1 : 0.94)).current;
 
   useEffect(() => {
-    // If disabled or already played in this process, finish immediately
-    if (!enabled || hasPlayedColdStartAnimation) {
+    if (!shouldPlay) {
       onFinish();
       return;
     }
 
     hasPlayedColdStartAnimation = true;
 
-    // Smooth, restrained Android entrance (450ms total) with native driver
-    Animated.sequence([
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
+    if (mode === 'subtle') {
+      // Short restrained fade (180ms)
       Animated.timing(opacityAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 180,
         useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setVisible(false);
-      onFinish();
-    });
-  }, [enabled, onFinish, opacityAnim, scaleAnim]);
+      }).start(() => {
+        setVisible(false);
+        onFinish();
+      });
+    } else {
+      // Standard tasteful entrance (380ms)
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 160,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setVisible(false);
+        onFinish();
+      });
+    }
+  }, [mode, onFinish, opacityAnim, scaleAnim, shouldPlay]);
 
   if (!visible) return null;
 
