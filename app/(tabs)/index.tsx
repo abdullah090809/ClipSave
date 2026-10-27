@@ -1,539 +1,450 @@
-import { useState, useCallback, useEffect, useRef, memo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
   Pressable,
-  Image,
+  Animated,
+  Modal,
+  TextInput,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
-import { Button } from '../../src/components/Button';
 import { extractAndValidateTikTokUrl } from '../../src/utils/urlValidator';
 import { resolveTikTokUrl } from '../../src/services/apiClient';
-import { getSettings } from '../../src/storage/settingsStore';
+import { startDownload } from '../../src/services/downloadEngine';
 import { subscribeQueue } from '../../src/storage/queueStore';
-import { getHistory } from '../../src/storage/historyStore';
-import { shareSavedMedia } from '../../src/services/mediaManager';
-import { pauseDownload, resumeDownload, cancelDownload } from '../../src/services/downloadEngine';
-import { jobProgressDetail, jobProgressFraction, jobStatusLabel, jobBucket } from '../../src/utils/jobDisplay';
-import { formatBytes, formatDuration } from '../../src/utils/formatters';
-import { DownloadJob, HistoryItem, ResolveError } from '../../src/types';
-
-const SAMPLE_TIKTOK_URL = 'https://www.tiktok.com/@tiktok/video/7123456789012345678';
-
-/** Live active download monitor component right on Home */
-const LiveDownloadMonitor = memo(function LiveDownloadMonitor() {
-  const { colors } = useTheme();
-  const router = useRouter();
-  const [activeJobs, setActiveJobs] = useState<DownloadJob[]>([]);
-
-  useEffect(() => {
-    return subscribeQueue((jobs) => {
-      const active = jobs.filter((j) => jobBucket(j) === 'active');
-      setActiveJobs(active);
-    });
-  }, []);
-
-  if (activeJobs.length === 0) return null;
-
-  const currentJob = activeJobs[0];
-  const fraction = jobProgressFraction(currentJob) ?? 0.1;
-  const isPaused = currentJob.state === 'PAUSED';
-
-  return (
-    <View style={[styles.liveMonitorCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.primary }]}>
-      <View style={styles.liveMonitorTop}>
-        <View style={[styles.livePulseDot, { backgroundColor: isPaused ? colors.warning : colors.primary }]} />
-        <Text style={[typography.labelMedium, { color: isPaused ? colors.warning : colors.primary, flex: 1, marginLeft: 6 }]}>
-          {isPaused ? 'DOWNLOAD PAUSED' : 'NOW DOWNLOADING'} ({activeJobs.length} active)
-        </Text>
-        <Pressable
-          onPress={() => router.push('/(tabs)/queue')}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Open activity queue"
-        >
-          <Text style={[typography.labelMedium, { color: colors.primary }]}>View All →</Text>
-        </Pressable>
-      </View>
-
-      <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600', marginTop: 4 }]} numberOfLines={1}>
-        {currentJob.media.title || 'TikTok Video'}
-      </Text>
-
-      <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-        {jobStatusLabel(currentJob)} · {jobProgressDetail(currentJob)}
-      </Text>
-
-      {/* Progress track */}
-      <View style={[styles.progressTrack, { backgroundColor: colors.outlineVariant }]}>
-        <View
-          style={[
-            styles.progressFill,
-            {
-              backgroundColor: isPaused ? colors.warning : colors.primary,
-              width: `${Math.round(fraction * 100)}%`,
-            },
-          ]}
-        />
-      </View>
-
-      {/* Quick In-Place Action Controls */}
-      <View style={styles.liveActionRow}>
-        {isPaused ? (
-          <Pressable
-            onPress={() => resumeDownload(currentJob.id)}
-            style={[styles.smallActionButton, { backgroundColor: colors.primary }]}
-            accessibilityRole="button"
-            accessibilityLabel="Resume download"
-          >
-            <Ionicons name="play" size={14} color="#FFFFFF" />
-            <Text style={[typography.labelMedium, { color: '#FFFFFF', marginLeft: 4 }]}>Resume</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={() => pauseDownload(currentJob.id)}
-            style={[styles.smallActionButton, { backgroundColor: colors.surface }]}
-            accessibilityRole="button"
-            accessibilityLabel="Pause download"
-          >
-            <Ionicons name="pause" size={14} color={colors.textPrimary} />
-            <Text style={[typography.labelMedium, { color: colors.textPrimary, marginLeft: 4 }]}>Pause</Text>
-          </Pressable>
-        )}
-
-        <Pressable
-          onPress={() => cancelDownload(currentJob.id)}
-          style={[styles.smallActionButton, { backgroundColor: colors.surface, marginLeft: spacing.sm }]}
-          accessibilityRole="button"
-          accessibilityLabel="Cancel download"
-        >
-          <Ionicons name="close" size={14} color={colors.danger} />
-          <Text style={[typography.labelMedium, { color: colors.danger, marginLeft: 4 }]}>Cancel</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-});
-
-/** Recent Downloads showcase on Home */
-const RecentDownloadsShowcase = memo(function RecentDownloadsShowcase() {
-  const { colors } = useTheme();
-  const router = useRouter();
-  const [recents, setRecents] = useState<HistoryItem[]>([]);
-
-  useFocusEffect(
-    useCallback(() => {
-      getHistory(false).then((items) => setRecents(items.slice(0, 3))).catch(() => {});
-    }, [])
-  );
-
-  if (recents.length === 0) return null;
-
-  return (
-    <View style={styles.showcaseContainer}>
-      <View style={styles.showcaseHeader}>
-        <Text style={[typography.titleSmall, { color: colors.textSecondary }]}>RECENT DOWNLOADS</Text>
-        <Pressable
-          onPress={() => router.push('/(tabs)/history')}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Open library"
-        >
-          <Text style={[typography.labelMedium, { color: colors.primary }]}>Open Library →</Text>
-        </Pressable>
-      </View>
-
-      {recents.map((item) => (
-        <View
-          key={item.id}
-          style={[styles.recentItemCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
-        >
-          <View style={[styles.recentThumbBox, { backgroundColor: colors.surface }]}>
-            {item.thumbnailUrl ? (
-              <Image source={{ uri: item.thumbnailUrl }} style={styles.recentThumbImage} resizeMode="cover" />
-            ) : (
-              <Ionicons name="film-outline" size={20} color={colors.textMuted} />
-            )}
-            {item.durationSeconds ? (
-              <View style={styles.durationPill}>
-                <Text style={styles.durationText}>{formatDuration(item.durationSeconds)}</Text>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.recentMeta}>
-            <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]} numberOfLines={1}>
-              {item.title || 'Saved Video'}
-            </Text>
-            <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]} numberOfLines={1}>
-              {formatBytes(item.fileSizeBytes)} {item.author ? `· ${item.author}` : ''}
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={() => shareSavedMedia(item.fileUri)}
-            style={[styles.iconShareCircle, { backgroundColor: colors.primaryLight }]}
-            android_ripple={{ color: colors.ripple }}
-            accessibilityRole="button"
-            accessibilityLabel={`Share ${item.title}`}
-          >
-            <Ionicons name="share-outline" size={16} color={colors.primary} />
-          </Pressable>
-        </View>
-      ))}
-    </View>
-  );
-});
+import { jobBucket, jobProgressFraction } from '../../src/utils/jobDisplay';
+import { formatBytes } from '../../src/utils/formatters';
+import { DownloadJob, ResolveError } from '../../src/types';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ prefill?: string; ts?: string }>();
 
-  const [inputUrl, setInputUrl] = useState('');
-  const [message, setMessage] = useState<{ text: string; fromResolver: boolean } | null>(null);
+  // State
+  const [activeJob, setActiveJob] = useState<DownloadJob | null>(null);
   const [resolving, setResolving] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
-  const [isMockMode, setIsMockMode] = useState(false);
-  const [clipboardDetectedUrl, setClipboardDetectedUrl] = useState<string | null>(null);
+  const [clipboardUrl, setClipboardUrl] = useState<string | null>(null);
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [manualInput, setManualInput] = useState('');
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [recentSavedTitle, setRecentSavedTitle] = useState<string | null>(null);
+
+  // Animations
+  const orbScale = useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
   const resolvingRef = useRef(false);
 
+  // Subscribe to Queue
+  useEffect(() => {
+    return subscribeQueue((jobs) => {
+      const active = jobs.find((j) => jobBucket(j) === 'active');
+      setActiveJob(active || null);
+
+      const latestDone = jobs.find((j) => jobBucket(j) === 'done');
+      if (latestDone && !active) {
+        setRecentSavedTitle(latestDone.media.title || 'Video saved to Gallery');
+      }
+    });
+  }, []);
+
+  // Check Clipboard on Focus
   useFocusEffect(
     useCallback(() => {
-      // Check mock mode
-      getSettings()
-        .then((s) => setIsMockMode(Boolean(s.useMockResolver)))
-        .catch(() => {});
-
-      // Smart Clipboard Detection
       Clipboard.hasStringAsync()
         .then(async (has) => {
-          if (!has) return;
+          if (!has) {
+            setClipboardUrl(null);
+            return;
+          }
           const text = await Clipboard.getStringAsync();
           if (text && text.trim()) {
-            const val = extractAndValidateTikTokUrl(text.trim());
-            if (val.isValid && val.normalizedUrl && val.normalizedUrl !== inputUrl) {
-              setClipboardDetectedUrl(val.normalizedUrl);
+            const check = extractAndValidateTikTokUrl(text.trim());
+            if (check.isValid && check.normalizedUrl) {
+              setClipboardUrl(check.normalizedUrl);
+            } else {
+              setClipboardUrl(null);
             }
           }
         })
         .catch(() => {});
-    }, [inputUrl])
+    }, [])
   );
 
-  // Prefill when coming from History or external route
+  // Prefill handling
   useEffect(() => {
     if (params.prefill) {
-      setInputUrl(params.prefill);
-      setMessage(null);
+      setManualInput(params.prefill);
+      setManualModalOpen(true);
     }
   }, [params.prefill, params.ts]);
 
-  const handlePaste = async () => {
-    try {
-      const hasString = await Clipboard.hasStringAsync();
-      const text = hasString ? await Clipboard.getStringAsync() : '';
-      if (!text || !text.trim()) {
-        Alert.alert('Empty Clipboard', 'Your clipboard does not contain any text.');
-        return;
-      }
-      setInputUrl(text.trim());
-      setMessage(null);
-      setClipboardDetectedUrl(null);
-    } catch {
-      Alert.alert('Clipboard Access', 'Could not read from clipboard.');
+  // Pulse animation when downloading
+  useEffect(() => {
+    if (activeJob || resolving) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.05,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1.0,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      pulseAnim.setValue(1);
     }
-  };
+  }, [activeJob, resolving, pulseAnim]);
 
-  const handleClear = () => {
-    setInputUrl('');
-    setMessage(null);
-  };
-
-  const executeResolve = async (urlToResolve: string) => {
+  // Execute Download Flow
+  const triggerDownloadForUrl = async (rawUrl: string) => {
     if (resolvingRef.current) return;
-    const validation = extractAndValidateTikTokUrl(urlToResolve);
-    if (!validation.isValid || !validation.normalizedUrl) {
-      setMessage({
-        text: validation.errorMessage || 'Invalid TikTok URL. Please check the link.',
-        fromResolver: false,
-      });
+    const check = extractAndValidateTikTokUrl(rawUrl);
+    if (!check.isValid || !check.normalizedUrl) {
+      setStatusMessage('Invalid link. Please copy a valid TikTok video URL.');
       return;
     }
 
     resolvingRef.current = true;
     setResolving(true);
-    setMessage(null);
+    setStatusMessage('Resolving video...');
     try {
-      const resolvedMedia = await resolveTikTokUrl(validation.normalizedUrl);
-      setClipboardDetectedUrl(null);
-      router.push({ pathname: '/preview', params: { mediaJson: JSON.stringify(resolvedMedia) } });
+      const media = await resolveTikTokUrl(check.normalizedUrl);
+      setStatusMessage('Starting download...');
+      await startDownload(media);
+      setStatusMessage(null);
+      setManualModalOpen(false);
+      setManualInput('');
+      setClipboardUrl(null);
     } catch (err: unknown) {
-      const resolveErr = err as ResolveError;
-      setMessage({
-        text: resolveErr?.message || 'Unable to resolve video. Please verify your link or network.',
-        fromResolver: true,
-      });
+      const error = err as ResolveError;
+      setStatusMessage(error?.message || 'Could not resolve video. Please check link.');
     } finally {
       resolvingRef.current = false;
       setResolving(false);
     }
   };
 
-  const handleResolve = () => {
-    if (!inputUrl.trim()) {
-      setMessage({ text: 'Paste or enter a TikTok video link above.', fromResolver: false });
+  // Main Orb Tap Handler
+  const handleOrbPress = async () => {
+    // Tactile bounce
+    Animated.sequence([
+      Animated.timing(orbScale, { toValue: 0.94, duration: 90, useNativeDriver: true }),
+      Animated.timing(orbScale, { toValue: 1, duration: 120, useNativeDriver: true }),
+    ]).start();
+
+    // If already downloading, open queue/activity
+    if (activeJob) {
+      router.push('/(tabs)/queue');
       return;
     }
-    executeResolve(inputUrl.trim());
+
+    // 1. Check current clipboard state
+    try {
+      const hasStr = await Clipboard.hasStringAsync();
+      if (hasStr) {
+        const text = await Clipboard.getStringAsync();
+        if (text && text.trim()) {
+          const check = extractAndValidateTikTokUrl(text.trim());
+          if (check.isValid && check.normalizedUrl) {
+            triggerDownloadForUrl(check.normalizedUrl);
+            return;
+          }
+        }
+      }
+    } catch {
+      // Fall through to manual modal
+    }
+
+    // If no valid TikTok URL was on clipboard, open manual input modal
+    setManualModalOpen(true);
   };
 
-  const handleTrySample = () => {
-    setInputUrl(SAMPLE_TIKTOK_URL);
-    setMessage(null);
-    executeResolve(SAMPLE_TIKTOK_URL);
+  const handleManualPaste = async () => {
+    try {
+      const hasStr = await Clipboard.hasStringAsync();
+      const text = hasStr ? await Clipboard.getStringAsync() : '';
+      if (!text || !text.trim()) {
+        Alert.alert('Empty Clipboard', 'No text found on clipboard.');
+        return;
+      }
+      setManualInput(text.trim());
+    } catch {
+      Alert.alert('Clipboard', 'Could not read from clipboard.');
+    }
   };
+
+  // Status text determination
+  const fraction = activeJob ? jobProgressFraction(activeJob) ?? 0.1 : 0;
+  const percentText = Math.round(fraction * 100);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       {/* Top Header Bar */}
-      <View style={[styles.topBar, { borderBottomColor: colors.outlineVariant }]}>
-        <View style={styles.brandRow}>
-          <View style={[styles.brandIcon, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
-            <Ionicons name="film" size={20} color={colors.primary} />
-          </View>
-          <Text style={[typography.titleLarge, { color: colors.textPrimary, marginLeft: spacing.sm }]}>
-            ClipSave
-          </Text>
-        </View>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.push('/about')}
+          style={[styles.headerCircleBtn, { borderColor: colors.outlineVariant }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="About ClipSave"
+        >
+          <Ionicons name="information-circle-outline" size={22} color={colors.textSecondary} />
+        </Pressable>
 
-        <View style={styles.headerActions}>
-          {isMockMode ? (
-            <Pressable
-              onPress={() => router.push('/(tabs)/settings')}
-              style={[styles.modePill, { borderColor: colors.warning, backgroundColor: colors.warningLight }]}
-              accessibilityRole="button"
-              accessibilityLabel="Mock mode enabled. Tap to change."
-            >
-              <Text style={[typography.labelMedium, { color: colors.warning }]}>Mock</Text>
-            </Pressable>
+        <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>C L I P S A V E</Text>
+
+        <Pressable
+          onPress={() => router.push('/(tabs)/settings')}
+          style={[styles.headerCircleBtn, { borderColor: colors.outlineVariant }]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
+          <Ionicons name="settings-outline" size={20} color={colors.textSecondary} />
+        </Pressable>
+      </View>
+
+      {/* Main Center Area with Central Download Orb */}
+      <View style={styles.centerContainer}>
+        <Animated.View
+          style={[
+            styles.orbOuterRing,
+            {
+              transform: [{ scale: orbScale }, { scale: pulseAnim }],
+              borderColor: activeJob ? colors.primary : clipboardUrl ? colors.primary : '#334155',
+              shadowColor: activeJob || clipboardUrl ? colors.primary : '#000000',
+            },
+          ]}
+        >
+          <Pressable
+            onPress={handleOrbPress}
+            style={[styles.orbCore, { backgroundColor: colors.surfaceContainer }]}
+            android_ripple={{ color: colors.ripple, borderless: true, radius: 95 }}
+            accessibilityRole="button"
+            accessibilityLabel={
+              activeJob
+                ? `Downloading ${percentText} percent. Tap to view queue.`
+                : clipboardUrl
+                ? 'Link detected. Tap to download from clipboard.'
+                : 'Tap to download TikTok video from clipboard'
+            }
+          >
+            {resolving ? (
+              <View style={styles.orbInnerContent}>
+                <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={[styles.orbStatusText, { color: colors.primary, marginTop: spacing.sm }]}>
+                  RESOLVING...
+                </Text>
+              </View>
+            ) : activeJob ? (
+              <View style={styles.orbInnerContent}>
+                <Text style={[styles.orbPercentText, { color: colors.primary }]}>{percentText}%</Text>
+                <Text style={[styles.orbByteText, { color: colors.textSecondary }]}>
+                  {formatBytes(activeJob.bytesDownloaded)}
+                </Text>
+                <Text style={[styles.orbActionText, { color: colors.primary, marginTop: 4 }]}>
+                  DOWNLOADING
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.orbInnerContent}>
+                <Ionicons
+                  name={clipboardUrl ? 'cloud-download-outline' : 'download-outline'}
+                  size={46}
+                  color={clipboardUrl ? colors.primary : colors.textPrimary}
+                />
+                <Text
+                  style={[
+                    styles.orbActionText,
+                    { color: clipboardUrl ? colors.primary : colors.textPrimary, marginTop: spacing.sm },
+                  ]}
+                >
+                  {clipboardUrl ? 'TAP TO SAVE' : 'DOWNLOAD'}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        </Animated.View>
+
+        {/* Dynamic Status Readout Under Orb */}
+        <View style={styles.statusBox}>
+          {statusMessage ? (
+            <Text style={[typography.bodySmall, { color: colors.danger, textAlign: 'center' }]}>
+              {statusMessage}
+            </Text>
+          ) : activeJob ? (
+            <Text style={[typography.bodySmall, { color: colors.textSecondary, textAlign: 'center' }]} numberOfLines={1}>
+              {activeJob.media.title || 'Downloading TikTok Video...'}
+            </Text>
+          ) : clipboardUrl ? (
+            <Text style={[typography.bodySmall, { color: colors.primary, textAlign: 'center', fontWeight: '600' }]} numberOfLines={1}>
+              TikTok Link Ready · Tap Orb to Download
+            </Text>
+          ) : recentSavedTitle ? (
+            <Text style={[typography.bodySmall, { color: colors.success, textAlign: 'center' }]} numberOfLines={1}>
+              ✓ {recentSavedTitle}
+            </Text>
           ) : (
-            <View style={[styles.modePill, { borderColor: colors.success, backgroundColor: colors.successLight }]}>
-              <View style={[styles.readyDot, { backgroundColor: colors.success }]} />
-              <Text style={[typography.labelMedium, { color: colors.success, marginLeft: 4 }]}>Ready</Text>
-            </View>
+            <Text style={[typography.bodySmall, { color: colors.textMuted, textAlign: 'center' }]}>
+              Copy a TikTok link, then tap the orb
+            </Text>
           )}
 
           <Pressable
-            onPress={() => router.push('/(tabs)/settings')}
-            style={styles.headerIconButton}
-            android_ripple={{ color: colors.ripple }}
+            onPress={() => setManualModalOpen(true)}
+            style={styles.manualLinkBtn}
+            hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="Open settings"
+            accessibilityLabel="Enter link manually"
           >
-            <Ionicons name="settings-outline" size={22} color={colors.textSecondary} />
+            <Text style={[typography.labelMedium, { color: colors.textSecondary }]}>
+              or enter link manually
+            </Text>
           </Pressable>
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      {/* Bottom Videos Trigger (Matching BlackHole presentation) */}
+      <View style={[styles.bottomContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <Pressable
+          onPress={() => router.push('/(tabs)/history')}
+          style={styles.videosTrigger}
+          android_ripple={{ color: colors.ripple, borderless: true, radius: 48 }}
+          accessibilityRole="button"
+          accessibilityLabel="Open saved videos library"
         >
-          {/* Smart Clipboard Detection Banner */}
-          {clipboardDetectedUrl && (
-            <View style={[styles.clipboardBanner, { backgroundColor: colors.primaryContainer, borderColor: colors.primary }]}>
-              <View style={styles.clipboardBannerMeta}>
-                <View style={styles.clipboardRow}>
-                  <Ionicons name="clipboard" size={16} color={colors.primary} />
-                  <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 6 }]}>
-                    Link Detected on Clipboard
-                  </Text>
-                </View>
-                <Text style={[typography.bodySmall, { color: colors.textPrimary, marginTop: 2 }]} numberOfLines={1}>
-                  {clipboardDetectedUrl}
-                </Text>
-              </View>
-
-              <View style={styles.clipboardActions}>
-                <Pressable
-                  onPress={() => executeResolve(clipboardDetectedUrl)}
-                  style={[styles.clipboardDownloadBtn, { backgroundColor: colors.primary }]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Download link from clipboard"
-                >
-                  <Text style={[typography.labelMedium, { color: '#FFFFFF' }]}>Download</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={() => setClipboardDetectedUrl(null)}
-                  style={styles.clipboardDismissBtn}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Dismiss clipboard link"
-                >
-                  <Ionicons name="close" size={18} color={colors.textMuted} />
-                </Pressable>
-              </View>
+          {/* Constellation Icon dots */}
+          <View style={styles.constellationBox}>
+            <View style={styles.constellationRow}>
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
             </View>
-          )}
-
-          {/* Main Download Console Hub Card */}
-          <View style={[styles.consoleCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>
-              Download TikTok Media
-            </Text>
-            <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2, marginBottom: spacing.md }]}>
-              Paste any public TikTok video or photo link to download cleanly without watermark.
-            </Text>
-
-            {/* Input Row */}
-            <View
-              style={[
-                styles.inputWrapper,
-                {
-                  backgroundColor: colors.surface,
-                  borderColor: message ? colors.danger : isFocused ? colors.primary : colors.outlineVariant,
-                },
-              ]}
-            >
-              <Ionicons name="link-outline" size={20} color={colors.textMuted} style={styles.inputPrefixIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textPrimary }]}
-                placeholder="Paste TikTok video link..."
-                placeholderTextColor={colors.textMuted}
-                value={inputUrl}
-                onChangeText={(t) => {
-                  setInputUrl(t);
-                  if (message) setMessage(null);
-                }}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                returnKeyType="go"
-                onSubmitEditing={handleResolve}
-                accessibilityLabel="TikTok video URL"
-              />
-              {inputUrl.length > 0 ? (
-                <Pressable onPress={handleClear} hitSlop={8} style={styles.inputActionIcon}>
-                  <Ionicons name="close-circle" size={20} color={colors.textMuted} />
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={handlePaste}
-                  style={[styles.pasteChip, { backgroundColor: colors.primaryContainer }]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Paste from clipboard"
-                >
-                  <Ionicons name="clipboard-outline" size={14} color={colors.primary} />
-                  <Text style={[typography.labelMedium, { color: colors.primary, marginLeft: 4 }]}>Paste</Text>
-                </Pressable>
-              )}
+            <View style={styles.constellationRow}>
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170', width: 7, height: 7, borderRadius: 3.5 }]} />
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
             </View>
+            <View style={styles.constellationRow}>
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
+              <View style={[styles.constellationDot, { backgroundColor: '#E2B170' }]} />
+            </View>
+          </View>
+          <Text style={styles.videosLabel}>V I D E O S</Text>
+        </Pressable>
+      </View>
 
-            {/* Inline message slot */}
-            {message && (
-              <View style={styles.messageBox}>
-                <Ionicons name="alert-circle" size={16} color={colors.danger} />
-                <Text style={[typography.bodySmall, { color: colors.danger, marginLeft: 6, flex: 1 }]}>
-                  {message.text}
-                </Text>
-                {message.fromResolver ? (
-                  <Pressable onPress={() => router.push('/(tabs)/settings')} style={{ marginLeft: 6 }}>
-                    <Text style={[typography.labelMedium, { color: colors.primary }]}>Settings</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            )}
+      {/* Manual Input Modal Bottom Sheet */}
+      <Modal
+        visible={manualModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setManualModalOpen(false)}
+      >
+        <Pressable style={styles.modalScrim} onPress={() => setManualModalOpen(false)} />
+        <View
+          style={[
+            styles.modalSheet,
+            {
+              backgroundColor: colors.surfaceContainer,
+              borderTopColor: colors.outlineVariant,
+              paddingBottom: Math.max(insets.bottom, 16) + spacing.md,
+            },
+          ]}
+        >
+          <View style={[styles.sheetHandle, { backgroundColor: colors.outline }]} />
 
-            {/* Primary Action Button */}
-            <Button
-              title="Fetch & Download Video"
-              onPress={handleResolve}
-              variant="primary"
-              size="lg"
-              loading={resolving}
-              style={styles.resolveButton}
-              icon={<Ionicons name="download-outline" size={20} color="#FFFFFF" />}
-              accessibilityLabel="Fetch and download video"
+          <View style={styles.sheetTopRow}>
+            <Text style={[typography.titleMedium, { color: colors.textPrimary }]}>Enter TikTok Link</Text>
+            <Pressable onPress={() => setManualModalOpen(false)} hitSlop={8}>
+              <Ionicons name="close" size={22} color={colors.textMuted} />
+            </Pressable>
+          </View>
+
+          <View
+            style={[
+              styles.modalInputWrapper,
+              { backgroundColor: colors.surface, borderColor: colors.outlineVariant },
+            ]}
+          >
+            <Ionicons name="link-outline" size={18} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
+            <TextInput
+              value={manualInput}
+              onChangeText={setManualInput}
+              placeholder="Paste public TikTok video link..."
+              placeholderTextColor={colors.textMuted}
+              style={[styles.modalTextInput, { color: colors.textPrimary }]}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              returnKeyType="go"
+              onSubmitEditing={() => triggerDownloadForUrl(manualInput)}
             />
-
-            {/* Quick Action Helpers */}
-            <View style={styles.quickChipsRow}>
-              <Pressable
-                onPress={handleTrySample}
-                style={[styles.helperChip, { borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Try sample link"
-              >
-                <Ionicons name="sparkles-outline" size={14} color={colors.primary} />
-                <Text style={[typography.labelMedium, { color: colors.textPrimary, marginLeft: 4 }]}>Try Sample</Text>
+            {manualInput.length > 0 ? (
+              <Pressable onPress={() => setManualInput('')} hitSlop={6}>
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
               </Pressable>
-
-              <Pressable
-                onPress={handlePaste}
-                style={[styles.helperChip, { borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Paste clipboard"
-              >
-                <Ionicons name="clipboard-outline" size={14} color={colors.textSecondary} />
-                <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 4 }]}>Paste</Text>
+            ) : (
+              <Pressable onPress={handleManualPaste} style={[styles.pasteBadge, { backgroundColor: colors.primaryContainer }]}>
+                <Text style={[typography.labelMedium, { color: colors.primary }]}>Paste</Text>
               </Pressable>
-
-              <Pressable
-                onPress={handleClear}
-                style={[styles.helperChip, { borderColor: colors.outlineVariant, backgroundColor: colors.surface }]}
-                accessibilityRole="button"
-                accessibilityLabel="Clear input"
-              >
-                <Ionicons name="trash-outline" size={14} color={colors.textSecondary} />
-                <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 4 }]}>Clear</Text>
-              </Pressable>
-            </View>
+            )}
           </View>
 
-          {/* Feature Highlights Pills */}
-          <View style={styles.featuresRow}>
-            <View style={[styles.featureBadge, { backgroundColor: colors.surfaceContainer }]}>
-              <Ionicons name="checkmark-done" size={14} color={colors.success} />
-              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 4 }]}>No Watermark</Text>
-            </View>
-            <View style={[styles.featureBadge, { backgroundColor: colors.surfaceContainer }]}>
-              <Ionicons name="flash-outline" size={14} color={colors.primary} />
-              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 4 }]}>Fast HD</Text>
-            </View>
-            <View style={[styles.featureBadge, { backgroundColor: colors.surfaceContainer }]}>
-              <Ionicons name="images-outline" size={14} color={colors.accent} />
-              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginLeft: 4 }]}>To Gallery</Text>
-            </View>
-          </View>
-
-          {/* Live Now Downloading Activity Card */}
-          <LiveDownloadMonitor />
-
-          {/* Recent Downloads Showcase */}
-          <RecentDownloadsShowcase />
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <Pressable
+            onPress={() => triggerDownloadForUrl(manualInput)}
+            disabled={resolving || !manualInput.trim()}
+            style={[
+              styles.downloadSubmitBtn,
+              {
+                backgroundColor: manualInput.trim() ? colors.primary : colors.surface,
+                opacity: resolving ? 0.7 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Download video from entered link"
+          >
+            {resolving ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={18} color={manualInput.trim() ? '#FFFFFF' : colors.textMuted} />
+                <Text
+                  style={[
+                    typography.labelMedium,
+                    {
+                      color: manualInput.trim() ? '#FFFFFF' : colors.textMuted,
+                      fontWeight: '700',
+                      marginLeft: 6,
+                    },
+                  ]}
+                >
+                  Download Video
+                </Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -542,241 +453,172 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  flex: {
-    flex: 1,
-  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  brandIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: borderRadius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  modePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-  },
-  readyDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  headerIconButton: {
-    padding: 6,
-    borderRadius: borderRadius.full,
-  },
-  content: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.sm,
   },
-  clipboardBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1.5,
-    marginBottom: spacing.md,
+  brandTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 6,
   },
-  clipboardBannerMeta: {
-    flex: 1,
-  },
-  clipboardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  clipboardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: spacing.sm,
-    gap: spacing.xs,
-  },
-  clipboardDownloadBtn: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: borderRadius.sm,
-  },
-  clipboardDismissBtn: {
-    padding: 6,
-  },
-  consoleCard: {
-    borderRadius: borderRadius.lg,
+  headerCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: borderRadius.md,
-    borderWidth: 1.5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 4,
+    justifyContent: 'center',
   },
-  inputPrefixIcon: {
-    marginRight: spacing.sm,
-  },
-  input: {
+  centerContainer: {
     flex: 1,
-    fontSize: 15,
-    paddingVertical: 6,
-  },
-  inputActionIcon: {
-    padding: 4,
-  },
-  pasteChip: {
-    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+  orbOuterRing: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    borderWidth: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  orbCore: {
+    width: 184,
+    height: 184,
+    borderRadius: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  orbInnerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orbActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  orbPercentText: {
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: -1,
+  },
+  orbByteText: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  orbStatusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  statusBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xl,
+    height: 54,
+    paddingHorizontal: spacing.lg,
+  },
+  manualLinkBtn: {
+    marginTop: spacing.xs,
+    paddingVertical: 4,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-    borderRadius: borderRadius.sm,
   },
-  messageBox: {
-    flexDirection: 'row',
+  bottomContainer: {
     alignItems: 'center',
-    marginTop: spacing.sm,
+    justifyContent: 'center',
+    paddingTop: spacing.xs,
   },
-  resolveButton: {
-    marginTop: spacing.md,
-  },
-  quickChipsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  helperChip: {
-    flexDirection: 'row',
+  videosTrigger: {
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.lg,
   },
-  featuresRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
+  constellationBox: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
   },
-  featureBadge: {
-    flex: 1,
+  constellationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: borderRadius.sm,
+    gap: 5,
   },
-  liveMonitorCard: {
-    borderRadius: borderRadius.lg,
-    borderWidth: 1.5,
-    padding: spacing.md,
+  constellationDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  videosLabel: {
+    color: '#E2B170',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 4,
+    marginTop: 4,
+  },
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+  },
+  modalSheet: {
+    borderTopLeftRadius: borderRadius.xl,
+    borderTopRightRadius: borderRadius.xl,
+    borderTopWidth: 1,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+  },
+  sheetHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
     marginBottom: spacing.md,
   },
-  liveMonitorTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  livePulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginTop: spacing.sm,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  liveActionRow: {
-    flexDirection: 'row',
-    marginTop: spacing.sm,
-  },
-  smallActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-    borderRadius: borderRadius.sm,
-  },
-  showcaseContainer: {
-    marginTop: spacing.xs,
-  },
-  showcaseHeader: {
+  sheetTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    paddingHorizontal: 2,
+    marginBottom: spacing.md,
   },
-  recentItemCard: {
+  modalInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.sm,
-    borderRadius: borderRadius.md,
     borderWidth: 1,
-    marginBottom: spacing.sm,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    marginBottom: spacing.md,
   },
-  recentThumbBox: {
-    width: 48,
-    height: 60,
-    borderRadius: borderRadius.sm,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  recentThumbImage: {
-    width: '100%',
-    height: '100%',
-  },
-  durationPill: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  durationText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  recentMeta: {
+  modalTextInput: {
     flex: 1,
-    marginLeft: spacing.md,
+    fontSize: 14,
+    paddingVertical: 4,
   },
-  iconShareCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  pasteBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: borderRadius.sm,
+  },
+  downloadSubmitBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: spacing.sm,
+    paddingVertical: 12,
+    borderRadius: borderRadius.md,
   },
 });

@@ -32,20 +32,20 @@ describe('settingsStore', () => {
     expect(url.startsWith('http')).toBe(true);
   });
 
-  test('UT-SET-04: enableLaunchAnimation defaults to false and persists updates', async () => {
+  test('UT-SET-04: enableLaunchAnimation defaults to true and persists updates', async () => {
     const initial = await getSettings();
-    expect(initial.enableLaunchAnimation).toBe(false);
-
-    const enabled = await saveSettings({ enableLaunchAnimation: true });
-    expect(enabled.enableLaunchAnimation).toBe(true);
-
-    const fresh = await getSettings();
-    expect(fresh.enableLaunchAnimation).toBe(true);
+    expect(initial.enableLaunchAnimation).toBe(true);
 
     const disabled = await saveSettings({ enableLaunchAnimation: false });
     expect(disabled.enableLaunchAnimation).toBe(false);
 
-    const retrievedDisabled = await getSettings();
-    expect(retrievedDisabled.enableLaunchAnimation).toBe(false);
+    const fresh = await getSettings();
+    expect(fresh.enableLaunchAnimation).toBe(false);
+
+    const reenabled = await saveSettings({ enableLaunchAnimation: true });
+    expect(reenabled.enableLaunchAnimation).toBe(true);
+
+    const retrievedReenabled = await getSettings();
+    expect(retrievedReenabled.enableLaunchAnimation).toBe(true);
   });
 });

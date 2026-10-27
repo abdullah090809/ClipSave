@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { subscribeQueue } from '../../src/storage/queueStore';
@@ -10,10 +12,11 @@ type IconName = keyof typeof Ionicons.glyphMap;
 const icon =
   (on: IconName, off: IconName) =>
   ({ color, focused }: { color: any; focused: boolean }) =>
-    <Ionicons name={focused ? on : off} size={24} color={color} />;
+    <Ionicons name={focused ? on : off} size={23} color={color} />;
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [activeCount, setActiveCount] = useState(0);
   const lastCount = useRef(0);
 
@@ -27,6 +30,11 @@ export default function TabLayout() {
     });
   }, []);
 
+  // Safe bottom padding guarantees the navigation bar is elevated completely
+  // above Android system navigation bars and gesture pill bars on any device
+  const bottomInset = Math.max(insets.bottom, 12);
+  const barHeight = 54 + bottomInset;
+
   return (
     <Tabs
       screenOptions={{
@@ -35,23 +43,23 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.tabBarBackground,
           borderTopColor: colors.outlineVariant,
-          borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 6,
-          elevation: 0,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          height: barHeight,
+          paddingBottom: bottomInset,
+          paddingTop: 8,
+          elevation: 10,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Download',
-          tabBarAccessibilityLabel: 'Download hub, paste or detect a link',
-          tabBarIcon: icon('download', 'download-outline'),
+          title: 'Downloader',
+          tabBarAccessibilityLabel: 'Central downloader orb',
+          tabBarIcon: icon('disc', 'disc-outline'),
         }}
       />
       <Tabs.Screen
@@ -71,7 +79,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: 'Library',
+          title: 'Videos',
           tabBarAccessibilityLabel: 'Saved video library',
           tabBarIcon: icon('film', 'film-outline'),
         }}
@@ -80,7 +88,7 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Settings',
-          tabBarAccessibilityLabel: 'Settings and configuration',
+          tabBarAccessibilityLabel: 'Settings and preferences',
           tabBarIcon: icon('settings', 'settings-outline'),
         }}
       />

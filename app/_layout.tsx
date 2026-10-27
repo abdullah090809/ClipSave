@@ -14,7 +14,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 function RootNavigation() {
   const { isDark, colors, isThemeReady } = useTheme();
   const [appReady, setAppReady] = useState(false);
-  const [enableLaunchAnimation, setEnableLaunchAnimation] = useState(false);
+  const [enableLaunchAnimation, setEnableLaunchAnimation] = useState(true);
 
   useEffect(() => {
     async function initialize() {
@@ -24,7 +24,7 @@ function RootNavigation() {
           loadQueueFromStorage(),
           cleanOrphanedTempFiles(),
         ]);
-        setEnableLaunchAnimation(Boolean(settings.enableLaunchAnimation));
+        setEnableLaunchAnimation(settings.enableLaunchAnimation !== false);
       } catch {
         // Fallback safely
       } finally {

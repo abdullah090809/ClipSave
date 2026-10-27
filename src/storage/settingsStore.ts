@@ -58,7 +58,7 @@ export const defaultSettings: AppSettings = {
   maxConcurrentDownloads: 2,
   useMockResolver: false,
   backendBaseUrl: getDefaultBackendUrl(),
-  enableLaunchAnimation: false,
+  enableLaunchAnimation: true,
 };
 
 let memoryCache: AppSettings = { ...defaultSettings };
