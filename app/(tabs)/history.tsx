@@ -22,7 +22,7 @@ import {
   deleteHistoryEntryAndFile,
   clearHistoryAndFiles,
 } from '../../src/storage/historyStore';
-import { shareSavedMedia } from '../../src/services/mediaManager';
+import { shareSavedMedia, playVideo } from '../../src/services/mediaManager';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
 import { TabHeader } from '../../src/components/TabHeader';
@@ -84,7 +84,7 @@ export default function HistoryScreen() {
   }, [history, searchQuery, sortOption]);
 
   const handleOpenVideo = useCallback((item: HistoryItem) => {
-    shareSavedMedia(item.fileUri);
+    playVideo(item.fileUri);
   }, []);
 
   const handleShareVideo = useCallback((item: HistoryItem) => {

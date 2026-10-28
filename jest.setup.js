@@ -13,6 +13,7 @@ jest.mock('expo-file-system/legacy', () => ({
   readDirectoryAsync: jest.fn(async () => []),
   moveAsync: jest.fn(async () => {}),
   copyAsync: jest.fn(async () => {}),
+  getContentUriAsync: jest.fn(async (uri) => `content://mock/${uri}`),
   createDownloadResumable: jest.fn(() => ({
     downloadAsync: jest.fn(async () => ({ status: 200, uri: 'file:///mock/downloaded.mp4' })),
     pauseAsync: jest.fn(async () => {}),
@@ -26,6 +27,7 @@ jest.mock('expo-media-library', () => ({
   getPermissionsAsync: jest.fn(async () => ({ status: 'undetermined' })),
   requestPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   createAssetAsync: jest.fn(async (uri) => ({ uri })),
+  saveToLibraryAsync: jest.fn(async () => {}),
   getAlbumAsync: jest.fn(async () => null),
   createAlbumAsync: jest.fn(async () => {}),
   addAssetsToAlbumAsync: jest.fn(async () => {}),
@@ -35,4 +37,9 @@ jest.mock('expo-media-library', () => ({
 jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn(async () => true),
   shareAsync: jest.fn(async () => {}),
+}));
+
+// Mock expo-intent-launcher
+jest.mock('expo-intent-launcher', () => ({
+  startActivityAsync: jest.fn(async () => ({ resultCode: -1 })),
 }));

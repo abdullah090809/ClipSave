@@ -1,7 +1,8 @@
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { getQueue } from '../storage/queueStore';
 
 export const DOWNLOADS_TEMP_DIR = `${FileSystem.cacheDirectory}downloads/`;
@@ -99,6 +100,28 @@ export interface SaveMediaResult {
   message?: string | undefined;
 }
 
+/**
+ * Requests device media library / gallery permissions upfront with granular support.
+ * Returns true if permission is granted.
+ */
+export async function ensureMediaLibraryPermissions(): Promise<boolean> {
+  try {
+    let perm = await MediaLibrary.getPermissionsAsync();
+    if (perm.status === 'granted') {
+      return true;
+    }
+    perm = await MediaLibrary.requestPermissionsAsync();
+    if (perm.status === 'granted') {
+      return true;
+    }
+    perm = await MediaLibrary.requestPermissionsAsync(true);
+    return perm.status === 'granted';
+  } catch (err) {
+    console.warn('ensureMediaLibraryPermissions failed:', err);
+    return false;
+  }
+}
+
 export async function saveCompletedMedia(
   sourceTempPath: string,
   sanitizedFilename: string,
@@ -149,7 +172,8 @@ export async function saveCompletedMedia(
       };
     }
 
-    // Try saving to device MediaLibrary / Scoped Storage (Gallery)
+    // Save to device Gallery / MediaStore
+    let savedToGallery = false;
     let permExplicitlyDenied = false;
     try {
       let perm = await MediaLibrary.getPermissionsAsync();
@@ -163,8 +187,8 @@ export async function saveCompletedMedia(
         permExplicitlyDenied = true;
       }
     } catch {
-      // In Expo Go, getPermissionsAsync throws PermissionsException due to sandbox policy.
-      // This is an environment restriction rather than an explicit user denial.
+      // In Expo Go or sandboxed environments, getPermissionsAsync throws.
+      // Allow best-effort attempt with createAssetAsync / saveToLibraryAsync.
       permExplicitlyDenied = false;
     }
 
@@ -172,6 +196,7 @@ export async function saveCompletedMedia(
       try {
         const asset = await MediaLibrary.createAssetAsync(destinationPath);
         if (asset) {
+          savedToGallery = true;
           try {
             const album = await MediaLibrary.getAlbumAsync('ClipSave');
             if (album) {
@@ -180,26 +205,25 @@ export async function saveCompletedMedia(
               await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
             }
           } catch {
-            // Album grouping can fail on some Android versions due to scoped storage, but asset is already created in MediaStore!
+            // Album grouping optional; asset is already in MediaStore
           }
-
-          return {
-            success: true,
-            finalUri: destinationPath,
-            savedToGallery: true,
-            message: 'Saved to Gallery.',
-          };
         }
-      } catch {
-        // MediaStore insertion restricted by environment (e.g. Expo Go)
+      } catch (assetErr) {
+        console.warn('createAssetAsync failed, trying saveToLibraryAsync fallback:', assetErr);
+        try {
+          await MediaLibrary.saveToLibraryAsync(destinationPath);
+          savedToGallery = true;
+        } catch (saveErr) {
+          console.warn('saveToLibraryAsync failed:', saveErr);
+        }
       }
     }
 
     return {
       success: true,
       finalUri: destinationPath,
-      savedToGallery: false,
-      message: 'Saved to app local storage. Use Share to export to gallery.',
+      savedToGallery,
+      message: savedToGallery ? 'Saved to Gallery.' : 'Saved to app local storage. Use Share to export to gallery.',
     };
   } catch (error: any) {
     return {
@@ -208,6 +232,74 @@ export async function saveCompletedMedia(
       savedToGallery: false,
       message: error?.message || 'Failed to save downloaded file.',
     };
+  }
+}
+
+/**
+ * Directly opens the downloaded video in the user's default Video Player or Gallery app
+ * using Android's native android.intent.action.VIEW intent.
+ */
+export async function playVideo(fileUri: string): Promise<boolean> {
+  try {
+    let targetUri = fileUri;
+
+    // Resolve content:// URI from MediaStore to local file:// path if needed
+    if (targetUri.startsWith('content://')) {
+      try {
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(targetUri);
+        if (assetInfo?.localUri) {
+          targetUri = assetInfo.localUri;
+        }
+      } catch {
+        // Fallback below
+      }
+    }
+
+    // Ensure URI is properly prefixed
+    if (!targetUri.startsWith('file://') && !targetUri.startsWith('content://')) {
+      targetUri = `file://${targetUri}`;
+    }
+
+    // Verify file exists on local storage
+    const info = await FileSystem.getInfoAsync(targetUri);
+    if (!info.exists) {
+      const filename = targetUri.split('/').pop();
+      if (filename) {
+        const docPath = `${FileSystem.documentDirectory}${filename}`;
+        const docInfo = await FileSystem.getInfoAsync(docPath);
+        if (docInfo.exists) {
+          targetUri = docPath;
+        } else {
+          Alert.alert('File Not Found', 'The downloaded video file could not be found on storage.');
+          return false;
+        }
+      } else {
+        Alert.alert('File Not Found', 'The downloaded video file could not be found on storage.');
+        return false;
+      }
+    }
+
+    if (Platform.OS === 'android') {
+      try {
+        // Convert to content:// URI using Expo FileProvider so external video players/gallery apps have read access
+        const contentUri = await FileSystem.getContentUriAsync(targetUri);
+        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+          data: contentUri,
+          type: 'video/mp4',
+          flags: 1, // Intent.FLAG_GRANT_READ_URI_PERMISSION
+        });
+        return true;
+      } catch (intentErr) {
+        console.warn('IntentLauncher.startActivityAsync failed, falling back to shareAsync:', intentErr);
+        return shareSavedMedia(targetUri);
+      }
+    } else {
+      // iOS / other
+      return shareSavedMedia(targetUri);
+    }
+  } catch (err: any) {
+    console.warn('playVideo failed:', err);
+    return shareSavedMedia(fileUri);
   }
 }
 

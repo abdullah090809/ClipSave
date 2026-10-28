@@ -21,7 +21,7 @@ import {
   removeDownloadJob,
   retryDownload,
 } from '../../src/services/downloadEngine';
-import { shareSavedMedia } from '../../src/services/mediaManager';
+import { shareSavedMedia, playVideo } from '../../src/services/mediaManager';
 import { useQueueStructure, useJob } from '../../src/hooks/useQueue';
 import { jobProgressFraction } from '../../src/utils/jobDisplay';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
@@ -63,7 +63,7 @@ const QueueJobCard = memo(function QueueJobCard({
     } else if (isActive) {
       pauseDownload(job.id);
     } else if (isDone && job.finalFileUri) {
-      shareSavedMedia(job.finalFileUri);
+      playVideo(job.finalFileUri);
     } else if (isFailed) {
       retryDownload(job.id);
     }
@@ -86,7 +86,13 @@ const QueueJobCard = memo(function QueueJobCard({
       {/* Top Row: Thumbnail + Metadata + Right Header Actions (✕ Remove & 3-Dots) */}
       <View style={styles.cardTopRow}>
         {/* Thumbnail with duration badge and play icon */}
-        <View style={styles.thumbnailWrapper}>
+        <Pressable
+          onPress={isDone && job.finalFileUri ? () => playVideo(job.finalFileUri!) : undefined}
+          disabled={!isDone || !job.finalFileUri}
+          style={styles.thumbnailWrapper}
+          accessibilityRole={isDone ? 'button' : undefined}
+          accessibilityLabel={isDone ? 'Play completed video' : undefined}
+        >
           {job.media.thumbnailUrl ? (
             <Image
               source={{ uri: job.media.thumbnailUrl }}
@@ -108,7 +114,7 @@ const QueueJobCard = memo(function QueueJobCard({
               </Text>
             </View>
           ) : null}
-        </View>
+        </Pressable>
 
         {/* Title, Creator, Size */}
         <View style={styles.metaCol}>
@@ -405,7 +411,7 @@ export default function QueueScreen() {
                 key: 'play',
                 label: 'Play Video',
                 icon: 'play-circle-outline' as const,
-                onPress: () => shareSavedMedia(selectedJob.finalFileUri!),
+                onPress: () => playVideo(selectedJob.finalFileUri!),
               },
               {
                 key: 'share',

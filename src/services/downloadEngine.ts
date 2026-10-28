@@ -12,6 +12,7 @@ import { sanitizeFilename } from '../utils/filenameSanitizer';
 import {
   ensureTempDirectory,
   saveCompletedMedia,
+  ensureMediaLibraryPermissions,
   DOWNLOADS_TEMP_DIR,
 } from './mediaManager';
 
@@ -52,6 +53,8 @@ export async function processNextQueuedJob(): Promise<void> {
 
 export async function startDownload(media: ResolvedMedia): Promise<string> {
   await ensureTempDirectory();
+  // Request media library permission upfront while user gesture is active
+  ensureMediaLibraryPermissions().catch(() => {});
 
   const settings = await getSettings();
   const maxConcurrency = Math.max(1, settings.maxConcurrentDownloads || 2);

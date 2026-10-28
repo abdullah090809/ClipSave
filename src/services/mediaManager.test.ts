@@ -3,6 +3,7 @@ import {
   cleanOrphanedTempFiles,
   saveCompletedMedia,
   shareSavedMedia,
+  playVideo,
   DOWNLOADS_TEMP_DIR,
 } from './mediaManager';
 import {
@@ -15,11 +16,19 @@ import { DownloadJob } from '../types';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import * as IntentLauncher from 'expo-intent-launcher';
+import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 describe('mediaManager', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
+    (MediaLibrary.getPermissionsAsync as jest.Mock).mockReset();
+    (MediaLibrary.getPermissionsAsync as jest.Mock).mockResolvedValue({ status: 'undetermined' });
+    (MediaLibrary.requestPermissionsAsync as jest.Mock).mockReset();
+    (MediaLibrary.requestPermissionsAsync as jest.Mock).mockResolvedValue({ status: 'granted' });
+    (MediaLibrary.createAssetAsync as jest.Mock).mockReset();
+    (MediaLibrary.createAssetAsync as jest.Mock).mockResolvedValue({ uri: 'file:///gallery/saved.mp4' });
     await AsyncStorage.clear();
     clearTerminalJobs();
     // Clear in-memory queue jobs
@@ -162,6 +171,61 @@ describe('mediaManager', () => {
     expect(result.success).toBe(true);
     expect(result.savedToGallery).toBe(true);
     expect(MediaLibrary.createAssetAsync).toHaveBeenCalled();
+  });
+
+  test('UT-MM-09: playVideo launches native android.intent.action.VIEW intent on Android', async () => {
+    Platform.OS = 'android';
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      size: 5000000,
+    });
+    (FileSystem.getContentUriAsync as jest.Mock).mockResolvedValueOnce(
+      'content://com.clipsave.app.provider/documents/video.mp4'
+    );
+
+    const success = await playVideo('file:///documents/video.mp4');
+    expect(success).toBe(true);
+    expect(FileSystem.getContentUriAsync).toHaveBeenCalledWith('file:///documents/video.mp4');
+    expect(IntentLauncher.startActivityAsync).toHaveBeenCalledWith(
+      'android.intent.action.VIEW',
+      expect.objectContaining({
+        data: 'content://com.clipsave.app.provider/documents/video.mp4',
+        type: 'video/mp4',
+        flags: 1,
+      })
+    );
+  });
+
+  test('UT-MM-10: playVideo falls back to shareSavedMedia when intent launcher fails', async () => {
+    Platform.OS = 'android';
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      size: 5000000,
+    });
+    (FileSystem.getContentUriAsync as jest.Mock).mockResolvedValueOnce(
+      'content://com.clipsave.app.provider/documents/video.mp4'
+    );
+    (IntentLauncher.startActivityAsync as jest.Mock).mockRejectedValueOnce(
+      new Error('No Activity found to handle Intent')
+    );
+
+    const success = await playVideo('file:///documents/video.mp4');
+    expect(success).toBe(true);
+    expect(Sharing.shareAsync).toHaveBeenCalled();
+  });
+
+  test('UT-MM-11: playVideo alerts when target file does not exist on storage', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+      exists: false,
+    });
+
+    const success = await playVideo('file:///documents/missing.mp4');
+    expect(success).toBe(false);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'File Not Found',
+      expect.stringContaining('could not be found')
+    );
   });
 
   test('UT-MM-REG-01: does NOT delete active downloading file even if older than 15 minutes', async () => {
