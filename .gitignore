@@ -31,6 +31,7 @@ yarn-error.*
 .DS_Store
 Thumbs.db
 *.pem
+*.zip
 
 # Local env files
 .env

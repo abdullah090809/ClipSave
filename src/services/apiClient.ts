@@ -189,8 +189,14 @@ export async function resolveTikTokUrl(
     const data = await response.json().catch(() => null);
 
     if (!response.ok) {
-      const code = data?.code || `HTTP_${response.status}`;
+      const detail = data?.detail;
+      const code =
+        (typeof detail === 'object' && detail?.code) ||
+        data?.code ||
+        `HTTP_${response.status}`;
       const message =
+        (typeof detail === 'object' && detail?.message) ||
+        (typeof detail === 'string' && detail) ||
         data?.message ||
         (response.status === 429
           ? 'Too many requests. Please wait a moment before trying again.'

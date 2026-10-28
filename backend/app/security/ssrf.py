@@ -48,10 +48,14 @@ def is_ip_blocked(ip_addr: str) -> bool:
 def verify_url_ssrf_safety(url: str) -> Tuple[bool, str]:
     """
     Resolve the DNS of the URL hostname and assert that all resolved IP addresses are public.
-    Rejects localhost, private LAN, link-local, and cloud metadata destinations.
+    Rejects localhost, private LAN, link-local, cloud metadata destinations, and disallowed schemes.
     """
     try:
         parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in ("http", "https"):
+            return False, f"Disallowed URL scheme '{scheme}'. Only HTTP and HTTPS are permitted."
+
         hostname = parsed.hostname
         if not hostname:
             return False, "Invalid or missing hostname in URL."

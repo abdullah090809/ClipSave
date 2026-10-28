@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock, AsyncMock
 from app.security.ssrf import is_ip_blocked, verify_url_ssrf_safety
 
 
@@ -68,7 +68,7 @@ def test_verify_url_ssrf_dns_rebinding_simulation():
         assert "restricted IP" in msg
 
 
-def test_verify_url_ssrf_metadata_dns_simulation():
+def test_verify_url_metadata_dns_simulation():
     # Simulates DNS returning AWS/GCP metadata service IP 169.254.169.254
     with patch("socket.getaddrinfo") as mock_dns:
         mock_dns.return_value = [
@@ -77,3 +77,72 @@ def test_verify_url_ssrf_metadata_dns_simulation():
         is_safe, msg = verify_url_ssrf_safety("https://metadata.tiktok.com/latest")
         assert is_safe is False
         assert "169.254.169.254" in msg
+
+
+def test_verify_url_disallowed_schemes():
+    # Only HTTP and HTTPS are permitted
+    assert verify_url_ssrf_safety("file:///etc/passwd")[0] is False
+    assert verify_url_ssrf_safety("ftp://upload.tiktok.com/file")[0] is False
+    assert verify_url_ssrf_safety("gopher://127.0.0.1:70/")[0] is False
+    assert verify_url_ssrf_safety("data:text/plain;base64,SGVsbG8=")[0] is False
+
+
+@pytest.mark.asyncio
+async def test_stream_proxy_ssrf_upstream_rejected():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.services.extractor import register_stream_session, clear_stream_sessions
+
+    clear_stream_sessions()
+    session_id = "stream_ssrf_attack_1"
+    # Register upstream pointing directly to AWS metadata service
+    register_stream_session(
+        stream_id=session_id,
+        media_url="http://169.254.169.254/latest/meta-data/iam/security-credentials",
+        headers={},
+        title="Exploit",
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(f"/v1/stream/{session_id}")
+        assert resp.status_code == 400
+        data = resp.json()
+        assert data["detail"]["code"] == "SSRF_RESTRICTED"
+
+
+@pytest.mark.asyncio
+async def test_stream_proxy_ssrf_redirect_to_metadata_blocked():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.services.extractor import register_stream_session, clear_stream_sessions
+    from unittest.mock import AsyncMock
+
+    clear_stream_sessions()
+    session_id = "stream_ssrf_redirect_attack"
+    register_stream_session(
+        stream_id=session_id,
+        media_url="https://attacker.example/redirect_exploit.mp4",
+        headers={},
+        title="Redirect Exploit",
+    )
+
+    # Mock public upstream that returns a 302 redirecting to AWS metadata IP
+    mock_redirect_resp = MagicMock()
+    mock_redirect_resp.status_code = 302
+    mock_redirect_resp.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+    mock_redirect_resp.aclose = AsyncMock()
+
+    with patch("app.routes.resolve.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = MagicMock()
+        mock_instance.build_request.return_value = "mock_request"
+        mock_instance.send = AsyncMock(return_value=mock_redirect_resp)
+        mock_instance.aclose = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(f"/v1/stream/{session_id}")
+            assert resp.status_code == 400
+            data = resp.json()
+            assert data["detail"]["code"] == "SSRF_RESTRICTED"

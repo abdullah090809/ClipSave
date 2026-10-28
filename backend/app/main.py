@@ -1,10 +1,20 @@
 import uuid
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .routes.resolve import router as resolve_router
 from .routes.health import router as health_router
+from .services.extractor import _thread_pool
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # Graceful shutdown of extractor thread pool
+    _thread_pool.shutdown(wait=False)
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -12,6 +22,7 @@ app = FastAPI(
     description="Stateless resolver backend for ClipSave mobile app.",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
+    lifespan=lifespan,
 )
 
 # CORS Middleware (strict allow list + local network origins for mobile development)
@@ -20,8 +31,16 @@ app.add_middleware(
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$",
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "X-Request-ID"],
+    allow_methods=["GET", "POST", "OPTIONS", "HEAD"],
+    allow_headers=["Content-Type", "Accept", "X-Request-ID", "Range", "Origin", "User-Agent"],
+    expose_headers=[
+        "Content-Range",
+        "Accept-Ranges",
+        "Content-Length",
+        "Content-Type",
+        "X-Request-ID",
+        "X-Response-Time-Ms",
+    ],
 )
 
 

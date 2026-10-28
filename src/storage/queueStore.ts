@@ -76,31 +76,41 @@ const notifyListeners = (immediate = true) => {
   }
 };
 
+let loadQueuePromise: Promise<DownloadJob[]> | null = null;
+
 export const loadQueueFromStorage = async (): Promise<DownloadJob[]> => {
-  try {
-    const raw = await AsyncStorage.getItem(QUEUE_KEY);
-    if (raw) {
-      const parsed: DownloadJob[] = JSON.parse(raw);
-      // Process death reconciliation: any job left in DOWNLOADING or FINALIZING becomes INTERRUPTED/FAILED
-      memoryJobs = parsed.map((job) => {
-        if (job.state === 'DOWNLOADING' || job.state === 'FINALIZING') {
-          return {
-            ...job,
-            state: 'FAILED' as DownloadState,
-            statusMessage: 'Interrupted by app termination',
-            errorMessage: 'Process closed during download. You can tap Retry to resume.',
-            isRetryable: true,
-          };
-        }
-        return job;
-      });
-    }
-  } catch {
-    memoryJobs = [];
+  if (loadQueuePromise) {
+    return loadQueuePromise;
   }
-  isLoaded = true;
-  notifyListeners(true);
-  return [...memoryJobs];
+  loadQueuePromise = (async () => {
+    try {
+      const raw = await AsyncStorage.getItem(QUEUE_KEY);
+      if (raw) {
+        const parsed: DownloadJob[] = JSON.parse(raw);
+        // Process death reconciliation: any job left in DOWNLOADING or FINALIZING becomes INTERRUPTED/FAILED
+        memoryJobs = parsed.map((job) => {
+          if (job.state === 'DOWNLOADING' || job.state === 'FINALIZING') {
+            return {
+              ...job,
+              state: 'FAILED' as DownloadState,
+              statusMessage: 'Interrupted by app termination',
+              errorMessage: 'Process closed during download. You can tap Retry to resume.',
+              isRetryable: true,
+            };
+          }
+          return job;
+        });
+      }
+    } catch {
+      memoryJobs = [];
+    } finally {
+      loadQueuePromise = null;
+    }
+    isLoaded = true;
+    notifyListeners(true);
+    return [...memoryJobs];
+  })();
+  return loadQueuePromise;
 };
 
 export const getQueue = (): DownloadJob[] => [...memoryJobs];

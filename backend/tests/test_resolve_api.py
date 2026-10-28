@@ -41,7 +41,9 @@ async def test_stream_nonexistent_session():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/v1/stream/nonexistent_session_id_404")
         assert resp.status_code == 404
-        assert "Stream session expired" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        msg = detail["message"] if isinstance(detail, dict) else detail
+        assert "Stream session expired" in msg
 
 
 @pytest.mark.asyncio

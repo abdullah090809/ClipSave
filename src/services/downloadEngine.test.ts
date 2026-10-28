@@ -6,6 +6,7 @@ import {
   retryDownload,
   removeDownloadJob,
   getActiveDownloadSessionsCount,
+  _resetActiveSessionsForTesting,
 } from './downloadEngine';
 import { getQueue, clearTerminalJobs } from '../storage/queueStore';
 import { getHistory } from '../storage/historyStore';
@@ -30,6 +31,7 @@ const sampleMedia: ResolvedMedia = {
 describe('downloadEngine', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
+    _resetActiveSessionsForTesting();
     await clearTerminalJobs();
   });
 
@@ -195,5 +197,51 @@ describe('downloadEngine', () => {
 
     await removeDownloadJob(jobId);
     expect(getQueue().some((j) => j.id === jobId)).toBe(false);
+  });
+
+  test('UT-DL-09: respects maxConcurrentDownloads and automatically starts queued job when active slot frees up', async () => {
+    const { saveSettings } = require('../storage/settingsStore');
+    await saveSettings({ maxConcurrentDownloads: 1 });
+
+    let finishFirstDownload: (() => void) | null = null;
+    (FileSystem.createDownloadResumable as jest.Mock)
+      .mockReturnValueOnce({
+        downloadAsync: () =>
+          new Promise((resolve) => {
+            finishFirstDownload = () => resolve({ status: 200, uri: 'file:///mock/1.mp4' });
+          }),
+        pauseAsync: jest.fn(),
+        resumeAsync: jest.fn(),
+        cancelAsync: jest.fn(),
+      })
+      .mockReturnValueOnce({
+        downloadAsync: jest.fn(async () => ({ status: 200, uri: 'file:///mock/2.mp4' })),
+        pauseAsync: jest.fn(),
+        resumeAsync: jest.fn(),
+        cancelAsync: jest.fn(),
+      });
+
+    const job1Id = await startDownload(sampleMedia);
+    const queueAfter1 = getQueue();
+    expect(queueAfter1.find((j) => j.id === job1Id)?.state).toBe('DOWNLOADING');
+
+    // Second download while job 1 is active with maxConcurrency = 1
+    const media2 = { ...sampleMedia, id: 'test_vid_002', title: 'Second Video' };
+    const job2Id = await startDownload(media2);
+    const queueAfter2 = getQueue();
+    expect(queueAfter2.find((j) => j.id === job2Id)?.state).toBe('QUEUED');
+    expect(queueAfter2.find((j) => j.id === job2Id)?.statusMessage).toContain('Waiting in queue');
+
+    // Now finish job 1
+    if (finishFirstDownload) {
+      (finishFirstDownload as any)();
+    }
+    await new Promise((r) => setTimeout(r, 60));
+
+    const queueAfterFinish = getQueue();
+    expect(queueAfterFinish.find((j) => j.id === job1Id)?.state).toBe('COMPLETED');
+    // Job 2 should have been picked up by processNextQueuedJob and transitioned to DOWNLOADING or COMPLETED
+    const job2State = queueAfterFinish.find((j) => j.id === job2Id)?.state;
+    expect(['DOWNLOADING', 'FINALIZING', 'COMPLETED']).toContain(job2State);
   });
 });

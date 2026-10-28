@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import secrets
 import time
 import uuid
 from typing import Optional, Dict, Any
@@ -10,15 +11,24 @@ from ..models import ResolvedMediaResponse
 from ..security.logging import log_safe_info, log_safe_error
 
 # In-memory stream session registry for proxying protected streams
+# Bounded to prevent memory exhaustion under continuous load
+MAX_STREAM_SESSIONS = 5000
 _stream_sessions: Dict[str, Dict[str, Any]] = {}
 
 
 def register_stream_session(stream_id: str, media_url: str, headers: Dict[str, str], title: str) -> None:
     now = time.time()
-    # Expire sessions older than 2 hours
+    # Expire sessions older than 2 hours (7200 seconds)
     expired = [k for k, v in _stream_sessions.items() if now - v.get("created_at", 0) > 7200]
     for k in expired:
         _stream_sessions.pop(k, None)
+
+    # Enforce capacity cap: evict oldest sessions if registry is full
+    if len(_stream_sessions) >= MAX_STREAM_SESSIONS:
+        excess = len(_stream_sessions) - MAX_STREAM_SESSIONS + 1
+        sorted_keys = sorted(_stream_sessions.keys(), key=lambda k: _stream_sessions[k].get("created_at", 0))
+        for ok in sorted_keys[:excess]:
+            _stream_sessions.pop(ok, None)
 
     _stream_sessions[stream_id] = {
         "media_url": media_url,
@@ -30,6 +40,11 @@ def register_stream_session(stream_id: str, media_url: str, headers: Dict[str, s
 
 def get_stream_session(stream_id: str) -> Optional[Dict[str, Any]]:
     return _stream_sessions.get(stream_id)
+
+
+def clear_stream_sessions() -> None:
+    """Clear all stream sessions (used primarily for test isolation)."""
+    _stream_sessions.clear()
 
 # Bounded worker semaphore
 _concurrency_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_EXTRACTIONS)
@@ -180,8 +195,8 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         cookie_str = "; ".join([f"{k}={v}" for k, v in cookies.items()])
         selected_headers["Cookie"] = cookie_str
 
-    # Register stream session for proxying
-    stream_id = f"stream_{uuid.uuid4().hex[:12]}"
+    # Register stream session for proxying with high-entropy token (192-bit)
+    stream_id = f"stream_{secrets.token_urlsafe(24)}"
     register_stream_session(
         stream_id=stream_id,
         media_url=media_url,

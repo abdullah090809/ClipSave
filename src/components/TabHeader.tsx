@@ -78,6 +78,7 @@ export const TabHeader: React.FC<TabHeaderProps> = ({
           <Pressable
             key={a.label}
             onPress={a.onPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             android_ripple={{ color: colors.ripple, borderless: true }}
             style={({ pressed }) => [
               styles.action,
@@ -102,6 +103,7 @@ export const TabHeader: React.FC<TabHeaderProps> = ({
         {onOverflowPress && (
           <Pressable
             onPress={onOverflowPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             android_ripple={{ color: colors.ripple, borderless: true, radius: 20 }}
             style={({ pressed }) => [
               styles.action,

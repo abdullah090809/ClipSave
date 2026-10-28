@@ -7,6 +7,7 @@ import {
   getQueue,
 } from '../storage/queueStore';
 import { addHistoryItem } from '../storage/historyStore';
+import { getSettings } from '../storage/settingsStore';
 import { sanitizeFilename } from '../utils/filenameSanitizer';
 import {
   ensureTempDirectory,
@@ -20,8 +21,41 @@ export function getActiveDownloadSessionsCount(): number {
   return activeDownloadSessions.size;
 }
 
+export function _resetActiveSessionsForTesting(): void {
+  activeDownloadSessions.clear();
+}
+
+export async function processNextQueuedJob(): Promise<void> {
+  const settings = await getSettings();
+  const maxConcurrency = Math.max(1, settings.maxConcurrentDownloads || 2);
+  if (activeDownloadSessions.size >= maxConcurrency) {
+    return;
+  }
+
+  const queue = getQueue();
+  // Find the earliest job in QUEUED state (queue is ordered newest first, reverse to find oldest)
+  const nextJob = queue.slice().reverse().find((j) => j.state === 'QUEUED');
+  if (!nextJob) {
+    return;
+  }
+
+  const safeName = sanitizeFilename(nextJob.media.title);
+  const tempPath = nextJob.tempFilePath || `${DOWNLOADS_TEMP_DIR}${nextJob.id}.tmp`;
+
+  updateJobInQueue(nextJob.id, {
+    state: 'DOWNLOADING',
+    statusMessage: 'Connecting to media server...',
+  });
+
+  executeDownloadStream(nextJob.id, nextJob.media.mediaUrl, tempPath, safeName);
+}
+
 export async function startDownload(media: ResolvedMedia): Promise<string> {
   await ensureTempDirectory();
+
+  const settings = await getSettings();
+  const maxConcurrency = Math.max(1, settings.maxConcurrentDownloads || 2);
+  const isSlotAvailable = activeDownloadSessions.size < maxConcurrency;
 
   const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const safeName = sanitizeFilename(media.title);
@@ -31,10 +65,10 @@ export async function startDownload(media: ResolvedMedia): Promise<string> {
     id: jobId,
     sourceUrl: media.sourceUrl,
     media,
-    state: 'DOWNLOADING',
+    state: isSlotAvailable ? 'DOWNLOADING' : 'QUEUED',
     bytesDownloaded: 0,
     totalBytes: media.estimatedSizeBytes ?? undefined,
-    statusMessage: 'Connecting to media server...',
+    statusMessage: isSlotAvailable ? 'Connecting to media server...' : 'Waiting in queue...',
     retryCount: 0,
     supportsResume: false,
     tempFilePath: tempPath,
@@ -44,7 +78,9 @@ export async function startDownload(media: ResolvedMedia): Promise<string> {
 
   addJobToQueue(newJob);
 
-  executeDownloadStream(jobId, media.mediaUrl, tempPath, safeName);
+  if (isSlotAvailable) {
+    executeDownloadStream(jobId, media.mediaUrl, tempPath, safeName);
+  }
   return jobId;
 }
 
@@ -96,6 +132,8 @@ async function finalizeSuccessfulDownload(
     statusMessage: saveResult.savedToGallery ? 'Saved to Gallery' : 'Saved to App Storage',
     finalFileUri: saveResult.finalUri,
   });
+
+  processNextQueuedJob().catch(() => {});
 }
 
 async function executeDownloadStream(
@@ -165,6 +203,7 @@ async function executeDownloadStream(
         errorMessage: `Server returned HTTP status ${result?.status ?? 'unknown'}.`,
         isRetryable: true,
       });
+      processNextQueuedJob().catch(() => {});
       return;
     }
 
@@ -181,6 +220,7 @@ async function executeDownloadStream(
       errorMessage: err?.message || 'An unexpected error occurred during download.',
       isRetryable: true,
     });
+    processNextQueuedJob().catch(() => {});
   }
 }
 
@@ -235,6 +275,7 @@ export async function pauseDownload(jobId: string): Promise<boolean> {
       statusMessage: 'Paused by user',
     });
     await session.pauseAsync();
+    processNextQueuedJob().catch(() => {});
     return true;
   } catch {
     return false;
@@ -286,6 +327,7 @@ export async function cancelDownload(jobId: string): Promise<void> {
     state: 'CANCELLED',
     statusMessage: 'Cancelled by user',
   });
+  processNextQueuedJob().catch(() => {});
 }
 
 export async function removeDownloadJob(jobId: string): Promise<void> {
@@ -309,23 +351,30 @@ export async function removeDownloadJob(jobId: string): Promise<void> {
   }
 
   removeJobFromQueue(jobId);
+  processNextQueuedJob().catch(() => {});
 }
 
 export async function retryDownload(jobId: string): Promise<void> {
   const job = getQueue().find((j) => j.id === jobId);
   if (!job) return;
 
+  const settings = await getSettings();
+  const maxConcurrency = Math.max(1, settings.maxConcurrentDownloads || 2);
+  const isSlotAvailable = activeDownloadSessions.size < maxConcurrency;
+
   const retryCount = (job.retryCount || 0) + 1;
   const safeName = sanitizeFilename(job.media.title);
   const tempPath = job.tempFilePath || `${DOWNLOADS_TEMP_DIR}${jobId}.tmp`;
 
   updateJobInQueue(jobId, {
-    state: 'DOWNLOADING',
-    statusMessage: `Retrying (attempt ${retryCount})...`,
+    state: isSlotAvailable ? 'DOWNLOADING' : 'QUEUED',
+    statusMessage: isSlotAvailable ? `Retrying (attempt ${retryCount})...` : 'Waiting in queue...',
     errorMessage: undefined,
     retryCount,
     bytesDownloaded: 0,
   });
 
-  executeDownloadStream(jobId, job.media.mediaUrl, tempPath, safeName);
+  if (isSlotAvailable) {
+    executeDownloadStream(jobId, job.media.mediaUrl, tempPath, safeName);
+  }
 }
