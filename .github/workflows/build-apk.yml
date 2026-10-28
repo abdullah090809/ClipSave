@@ -47,19 +47,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 4. Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: 5. Setup Gradle Cache
+      - name: 4. Setup Gradle Cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 6. Install Dependencies
+      - name: 5. Install Dependencies
         run: npm ci || npm install --legacy-peer-deps
 
-      - name: 7. Generate Android Native Project (Expo Prebuild)
+      - name: 6. Generate Android Native Project (Expo Prebuild)
         run: npx expo prebuild --platform android --clean
 
-      - name: 8. Ensure Valid APK Signing
+      - name: 7. Ensure Valid APK Signing
         run: |
           cd android/app
           # Ensure release APK is signed with a valid certificate so Android permits installation
@@ -74,7 +71,7 @@ jobs:
             sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' build.gradle || true
           fi
 
-      - name: 9. Build APK via Gradle
+      - name: 8. Build APK via Gradle
         working-directory: android
         run: |
           chmod +x gradlew
@@ -89,21 +86,21 @@ jobs:
             ./gradlew assembleRelease --no-daemon
           fi
 
-      - name: 10. Collect Generated APKs
+      - name: 9. Collect Generated APKs
         run: |
           mkdir -p output-apks
           find android/app/build/outputs/apk -type f -name "*.apk" -exec cp {} output-apks/ \;
           echo "Collected APK files:"
           ls -lh output-apks/
 
-      - name: 11. Upload APK Artifact
+      - name: 10. Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ClipSave-Android-APK
           path: output-apks/*.apk
           retention-days: 14
 
-      - name: 12. Generate GitHub Run Summary
+      - name: 11. Generate GitHub Run Summary
         run: |
           echo "### 🚀 ClipSave Android APK Build Completed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
