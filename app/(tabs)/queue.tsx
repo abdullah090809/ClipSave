@@ -132,6 +132,16 @@ const QueueJobCard = memo(function QueueJobCard({
           </Text>
           <Text style={[typography.caption, { color: colors.textMuted, marginTop: 2 }]}>
             {sizeText}
+            {isDone && (
+              <Text
+                style={{
+                  color: job.statusMessage === 'Saved to Gallery' ? colors.success : colors.warning,
+                  fontWeight: '600',
+                }}
+              >
+                {` • ${job.statusMessage || 'Completed'}`}
+              </Text>
+            )}
           </Text>
         </View>
 
