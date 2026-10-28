@@ -106,16 +106,12 @@ export interface SaveMediaResult {
  */
 export async function ensureMediaLibraryPermissions(): Promise<boolean> {
   try {
-    let perm = await MediaLibrary.getPermissionsAsync();
-    if (perm?.status === 'granted') {
+    const perm = await MediaLibrary.getPermissionsAsync();
+    if (perm?.granted || perm?.status === 'granted') {
       return true;
     }
-    perm = await MediaLibrary.requestPermissionsAsync();
-    if (perm?.status === 'granted') {
-      return true;
-    }
-    perm = await MediaLibrary.requestPermissionsAsync(true);
-    return perm?.status === 'granted';
+    const requested = await MediaLibrary.requestPermissionsAsync();
+    return requested?.granted || requested?.status === 'granted';
   } catch (err) {
     console.warn('ensureMediaLibraryPermissions failed:', err);
     return false;
@@ -176,15 +172,12 @@ export async function saveCompletedMedia(
     let savedToGallery = false;
     let permExplicitlyDenied = false;
     try {
-      let perm = await MediaLibrary.getPermissionsAsync();
-      if (perm.status !== 'granted') {
-        perm = await MediaLibrary.requestPermissionsAsync();
-      }
-      if (perm.status !== 'granted') {
-        perm = await MediaLibrary.requestPermissionsAsync(true);
-      }
-      if (perm.status === 'denied') {
-        permExplicitlyDenied = true;
+      const perm = await MediaLibrary.getPermissionsAsync();
+      if (!perm?.granted && perm?.status !== 'granted') {
+        const requested = await MediaLibrary.requestPermissionsAsync();
+        if (requested?.status === 'denied' && !requested?.granted) {
+          permExplicitlyDenied = true;
+        }
       }
     } catch {
       // In Expo Go or sandboxed environments, getPermissionsAsync throws.

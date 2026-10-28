@@ -54,7 +54,7 @@ export async function processNextQueuedJob(): Promise<void> {
 export async function startDownload(media: ResolvedMedia): Promise<string> {
   await ensureTempDirectory();
   // Request media library permission upfront while user gesture is active
-  ensureMediaLibraryPermissions().catch(() => {});
+  await ensureMediaLibraryPermissions().catch(() => {});
 
   const settings = await getSettings();
   const maxConcurrency = Math.max(1, settings.maxConcurrentDownloads || 2);

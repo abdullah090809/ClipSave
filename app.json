@@ -50,7 +50,6 @@
         {
           "photosPermission": "Allow ClipSave to access your gallery to save videos.",
           "savePhotosPermission": "Allow ClipSave to save videos to your gallery.",
-          "isAccessMediaLocationEnabled": true,
           "granularPermissions": ["photo", "video"]
         }
       ]
