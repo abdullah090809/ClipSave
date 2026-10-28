@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, ViewStyle, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing, borderRadius } from '../theme/spacing';
+import { spacing, borderRadius, iconSize } from '../theme/spacing';
 import { typography } from '../theme/typography';
 import { DownloadState } from '../types';
 
@@ -106,7 +106,7 @@ export const Badge: React.FC<BadgeProps> = ({
       accessibilityLabel={`Status: ${label}`}
     >
       {showIcon && iconName && (
-        <Ionicons name={iconName} size={13} color={text} style={styles.icon} />
+        <Ionicons name={iconName} size={iconSize.xs} color={text} style={styles.icon} />
       )}
       <Text style={[typography.labelMedium, { color: text }]}>{label}</Text>
     </View>

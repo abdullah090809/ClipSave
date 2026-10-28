@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated, Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, Animated, Text, Image } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { typography } from '../theme/typography';
 import { StartupAnimationMode } from '../types';
+import { motion, isReduceMotion } from '../theme/motion';
 
 interface LaunchAnimationProps {
   mode: StartupAnimationMode;
@@ -19,49 +19,84 @@ export function resetColdStartAnimationForTesting() {
 
 export const LaunchAnimation: React.FC<LaunchAnimationProps> = ({ mode, onFinish }) => {
   const { colors } = useTheme();
-  const shouldPlay = mode !== 'off' && !hasPlayedColdStartAnimation;
+  // Decided once on mount so a parent re-render mid-animation cannot cut it short.
+  const shouldPlay = useRef(mode !== 'off' && !hasPlayedColdStartAnimation).current;
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
   const [visible, setVisible] = useState(shouldPlay);
 
   const opacityAnim = useRef(new Animated.Value(1)).current;
-  const scaleAnim = useRef(new Animated.Value(mode === 'subtle' ? 1 : 0.94)).current;
+  const scaleAnim = useRef(new Animated.Value(mode === 'subtle' ? 1 : 0.9)).current;
+  const contentOpacity = useRef(new Animated.Value(mode === 'subtle' ? 1 : 0)).current;
+  const taglineAnim = useRef(new Animated.Value(mode === 'subtle' ? 1 : 0)).current;
 
   useEffect(() => {
     if (!shouldPlay) {
-      onFinish();
+      onFinishRef.current();
       return;
     }
 
     hasPlayedColdStartAnimation = true;
 
-    if (mode === 'subtle') {
-      // Short restrained fade (180ms)
+    const finish = () => {
+      setVisible(false);
+      onFinishRef.current();
+    };
+
+    if (mode === 'subtle' || isReduceMotion()) {
+      // Short restrained fade (also used when the system asks to reduce motion)
+      contentOpacity.setValue(1);
+      taglineAnim.setValue(1);
+      scaleAnim.setValue(1);
       Animated.timing(opacityAnim, {
         toValue: 0,
-        duration: 180,
+        duration: isReduceMotion() ? 120 : 180,
         useNativeDriver: true,
-      }).start(() => {
-        setVisible(false);
-        onFinish();
-      });
+      }).start(finish);
     } else {
-      // Standard tasteful entrance (380ms)
+      // Standard: logo springs in, name settles, brief hold, then the whole
+      // splash dissolves while drifting up a touch (~800ms in total).
       Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 0,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setVisible(false);
-        onFinish();
-      });
+        Animated.parallel([
+          Animated.timing(contentOpacity, {
+            toValue: 1,
+            duration: motion.duration.base,
+            easing: motion.easing.enter,
+            useNativeDriver: true,
+          }),
+          Animated.spring(scaleAnim, {
+            toValue: 1,
+            damping: 14,
+            stiffness: 180,
+            mass: 0.8,
+            useNativeDriver: true,
+          }),
+          Animated.timing(taglineAnim, {
+            toValue: 1,
+            duration: motion.duration.slow,
+            delay: 120,
+            easing: motion.easing.enter,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.delay(140),
+        Animated.parallel([
+          Animated.timing(opacityAnim, {
+            toValue: 0,
+            duration: 220,
+            easing: motion.easing.move,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1.04,
+            duration: 220,
+            easing: motion.easing.move,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(finish);
     }
-  }, [mode, onFinish, opacityAnim, scaleAnim, shouldPlay]);
+  }, [mode, opacityAnim, scaleAnim, contentOpacity, taglineAnim, shouldPlay]);
 
   if (!visible) return null;
 
@@ -80,27 +115,33 @@ export const LaunchAnimation: React.FC<LaunchAnimationProps> = ({ mode, onFinish
         style={[
           styles.contentBox,
           {
+            opacity: contentOpacity,
             transform: [{ scale: scaleAnim }],
           },
         ]}
       >
-        <View
-          style={[
-            styles.iconCircle,
-            {
-              backgroundColor: colors.primaryContainer || colors.primaryLight,
-              borderColor: colors.primary,
-            },
-          ]}
-        >
-          <Ionicons name="film" size={36} color={colors.primary} />
-        </View>
+        <Image
+          source={require('../../assets/clipsave-logo.png')}
+          style={styles.launchLogoImg}
+          resizeMode="contain"
+        />
         <Text style={[typography.headlineMedium, { color: colors.textPrimary, marginTop: 12, letterSpacing: -0.3 }]}>
           ClipSave
         </Text>
-        <Text style={[typography.micro, { color: colors.textMuted, marginTop: 2, letterSpacing: 0.5 }]}>
+        <Animated.Text
+          style={[
+            typography.micro,
+            {
+              color: colors.textMuted,
+              marginTop: 2,
+              letterSpacing: 0.5,
+              opacity: taglineAnim,
+              transform: [{ translateY: taglineAnim.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+            },
+          ]}
+        >
           TIKTOK MEDIA DOWNLOADER
-        </Text>
+        </Animated.Text>
       </Animated.View>
     </Animated.View>
   );
@@ -121,12 +162,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconCircle: {
+  launchLogoImg: {
     width: 72,
     height: 72,
-    borderRadius: 36,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 18,
   },
 });

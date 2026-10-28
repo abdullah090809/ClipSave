@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing, borderRadius } from '../theme/spacing';
+import { spacing, borderRadius, iconSize } from '../theme/spacing';
 import { typography } from '../theme/typography';
 
 export interface SegmentOption<T extends string> {
@@ -64,7 +64,7 @@ export function SegmentedControl<T extends string>({
             {opt.icon && (
               <Ionicons
                 name={opt.icon}
-                size={16}
+                size={iconSize.sm}
                 color={isSelected ? colors.primary : colors.textSecondary}
                 style={styles.segmentIcon}
               />

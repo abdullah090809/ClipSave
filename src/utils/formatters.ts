@@ -50,3 +50,20 @@ export function formatShortDate(isoDateString: string, now: Date = new Date()): 
     return '';
   }
 }
+
+/** "3.2 MB/s" from bytes per second. */
+export function formatSpeed(bytesPerSecond: number): string {
+  if (!isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '0 KB/s';
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+/** "0:04" or "1:05:09" for a remaining time in seconds; empty when unknown. */
+export function formatEta(seconds?: number): string {
+  if (seconds === undefined || !isFinite(seconds) || seconds < 0) return '';
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}

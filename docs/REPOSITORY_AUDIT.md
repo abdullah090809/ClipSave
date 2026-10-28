@@ -36,7 +36,6 @@ D:\Skills\Tiktok Downloader\
 ├── app/
 │   ├── _layout.tsx            # Root layout with ThemeProvider and startup cleanup
 │   ├── about.tsx              # About & transparency sheet
-│   ├── preview.tsx            # Pre-download metadata confirmation modal
 │   └── (tabs)/
 │       ├── _layout.tsx        # Bottom tab navigation (Home, Queue, History, Settings)
 │       ├── history.tsx        # Saved media history, open, share, delete

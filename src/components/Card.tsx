@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Pressable, ViewStyle, Platform } from 'react-native';
+import { View, ViewStyle, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing, borderRadius, elevation } from '../theme/spacing';
+import { borderRadius, elevation, layout } from '../theme/spacing';
+import { PressableScale } from './PressableScale';
 
 export type CardVariant = 'filled' | 'elevated' | 'outlined';
 
@@ -58,7 +59,7 @@ export const Card: React.FC<CardProps> = ({
 
   const cardContainerStyle: ViewStyle = {
     ...getCardStyle(),
-    padding: spacing.lg,
+    padding: layout.card,
     overflow: 'hidden',
   };
 
@@ -66,23 +67,18 @@ export const Card: React.FC<CardProps> = ({
     const rippleColor = colors.ripple || (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)');
 
     return (
-      <Pressable
+      <PressableScale
+        scaleTo={0.985}
         testID={testID}
         onPress={onPress}
         android_ripple={{ color: rippleColor, borderless: false }}
-        style={({ pressed }) => [
-          cardContainerStyle,
-          style,
-          {
-            opacity: pressed && Platform.OS !== 'android' ? 0.9 : 1,
-          },
-        ]}
+        style={[cardContainerStyle, style]}
         accessible={true}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
       >
         {children}
-      </Pressable>
+      </PressableScale>
     );
   }
 

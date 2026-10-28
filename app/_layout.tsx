@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeContext';
 import { loadQueueFromStorage } from '../src/storage/queueStore';
 import { cleanOrphanedTempFiles } from '../src/services/mediaManager';
 import { getSettings } from '../src/storage/settingsStore';
+import { checkAndWarmBackend } from '../src/services/apiClient';
 import { LaunchAnimation } from '../src/components/LaunchAnimation';
 
 import { StartupAnimationMode } from '../src/types';
@@ -21,6 +22,9 @@ function RootNavigation() {
   useEffect(() => {
     async function initialize() {
       try {
+        // One-shot silent pre-warm on app launch (boots sleeping backend in parallel)
+        checkAndWarmBackend().catch(() => {});
+
         const [settings] = await Promise.all([
           getSettings(),
           loadQueueFromStorage(),
@@ -56,19 +60,11 @@ function RootNavigation() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
-          animation: 'fade_from_bottom',
+          animation: 'slide_from_right',
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="preview"
-          options={{
-            presentation: 'modal',
-            headerShown: false,
-            animation: 'slide_from_bottom',
-          }}
-        />
-        <Stack.Screen name="about" options={{ headerShown: false }} />
+        <Stack.Screen name="about" options={{ headerShown: false, gestureEnabled: true }} />
       </Stack>
 
       {appReady && isThemeReady && startupAnimation !== 'off' && (

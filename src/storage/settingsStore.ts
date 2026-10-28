@@ -1,57 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import { AppSettings } from '../types';
 
 const SETTINGS_KEY = '@clipsave_settings_v1';
 
+export const PRODUCTION_BACKEND_URL = 'https://clipsave-96518.containers.snapdeploy.app';
+
 export function getDefaultBackendUrl(): string {
-  if (process.env.EXPO_PUBLIC_BACKEND_URL) {
-    return process.env.EXPO_PUBLIC_BACKEND_URL;
+  // 1. Explicit environment variable configuration
+  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/$/, '');
   }
 
-  // 1. Check Constants.expoConfig?.hostUri
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-      return `http://${ip}:8080`;
-    }
-  }
-
-  // 2. Check Constants.expoGoConfig?.debuggerHost (Expo Go runtime)
-  const debuggerHost = (Constants as any).expoGoConfig?.debuggerHost;
-  if (debuggerHost) {
-    const ip = String(debuggerHost).split(':')[0];
-    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-      return `http://${ip}:8080`;
-    }
-  }
-
-  // 3. Check Constants.linkingUri (e.g. "exp://192.168.1.21:8081" or "http://192.168.1.21:8081")
-  const linkingUri = (Constants as any).linkingUri;
-  if (linkingUri && typeof linkingUri === 'string') {
-    const match = linkingUri.match(/^[a-zA-Z]+:\/\/([^:/]+)/);
-    if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
-      return `http://${match[1]}:8080`;
-    }
-  }
-
-  // 4. Check legacy manifest debuggerHost
-  const legacyHost =
-    (Constants as any).manifest?.debuggerHost ||
-    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
-  if (legacyHost) {
-    const ip = String(legacyHost).split(':')[0];
-    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-      return `http://${ip}:8080`;
-    }
-  }
-
-  return 'http://127.0.0.1:8080';
+  // 2. Fallback to deployed production backend
+  return PRODUCTION_BACKEND_URL;
 }
 
 export const defaultSettings: AppSettings = {
   themeMode: 'system',
+  palette: 'warm_light',
+  accentColor: 'coral',
   startupAnimation: 'standard',
   autoDownloadOnResolve: false,
   saveToGallery: true,
@@ -85,16 +53,22 @@ export const getSettings = async (): Promise<AppSettings> => {
       ...defaultSettings,
       ...parsed,
       startupAnimation: migratedStartupAnimation,
+      palette: parsed.palette || defaultSettings.palette,
+      accentColor: parsed.accentColor || defaultSettings.accentColor,
     };
 
-    // Self-healing migration: if the stored URL is loopback (127.0.0.1 or localhost),
-    // but the current environment provides a non-loopback LAN IP (e.g. 192.168.1.21),
-    // update the stored URL so the phone connects to the host PC!
-    if (
-      (settings.backendBaseUrl.includes('127.0.0.1') || settings.backendBaseUrl.includes('localhost')) &&
-      !dynamicDefaultUrl.includes('127.0.0.1') &&
-      !dynamicDefaultUrl.includes('localhost')
-    ) {
+    // Self-healing migration: if the stored URL is a local development address (loopback or LAN IP),
+    // and the active default URL is a production HTTPS endpoint, update stored URL to the deployed backend
+    const isStoredLocal =
+      settings.backendBaseUrl.includes('127.0.0.1') ||
+      settings.backendBaseUrl.includes('localhost') ||
+      settings.backendBaseUrl.includes('192.168.') ||
+      settings.backendBaseUrl.includes('10.') ||
+      settings.backendBaseUrl.includes('172.');
+
+    const isDefaultDeployed = dynamicDefaultUrl.startsWith('https://');
+
+    if (isStoredLocal && isDefaultDeployed) {
       settings.backendBaseUrl = dynamicDefaultUrl;
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)).catch(() => {});
     }

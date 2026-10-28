@@ -1,7 +1,9 @@
 import { memo } from 'react';
-import { Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext';
+import { iconSize } from '../theme/spacing';
+import { PressableScale } from './PressableScale';
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -21,13 +23,14 @@ export const IconButton = memo(function IconButton({
   label,
   onPress,
   color,
-  size = 22,
+  size = iconSize.lg,
   disabled,
   style,
 }: IconButtonProps) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <PressableScale
+      scaleTo={0.9}
       onPress={onPress}
       disabled={disabled}
       android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
@@ -38,7 +41,7 @@ export const IconButton = memo(function IconButton({
       hitSlop={0}
     >
       <Ionicons name={icon} size={size} color={color ?? colors.textSecondary} />
-    </Pressable>
+    </PressableScale>
   );
 });
 

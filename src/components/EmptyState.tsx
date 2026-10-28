@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing } from '../theme/spacing';
+import { spacing, iconSize } from '../theme/spacing';
 import { typography } from '../theme/typography';
 import { Button } from './Button';
 
@@ -25,7 +25,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   const { colors } = useTheme();
   return (
     <View style={styles.container}>
-      <Ionicons name={iconName} size={40} color={colors.textMuted} />
+      <Ionicons name={iconName} size={iconSize.hero} color={colors.textMuted} />
       <Text style={[typography.titleLarge, styles.title, { color: colors.textPrimary }]}>{title}</Text>
       <Text style={[typography.body, styles.desc, { color: colors.textSecondary }]}>{description}</Text>
       {actionTitle && onAction ? (

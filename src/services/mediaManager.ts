@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -184,7 +185,7 @@ export async function saveCompletedMedia(
 
           return {
             success: true,
-            finalUri: asset.uri || destinationPath,
+            finalUri: destinationPath,
             savedToGallery: true,
             message: 'Saved to Gallery.',
           };
@@ -211,13 +212,59 @@ export async function saveCompletedMedia(
 }
 
 export async function shareSavedMedia(fileUri: string): Promise<boolean> {
-  const isAvailable = await Sharing.isAvailableAsync();
-  if (!isAvailable) {
+  try {
+    const isAvailable = await Sharing.isAvailableAsync();
+    if (!isAvailable) {
+      Alert.alert('Sharing Unavailable', 'Video playback or sharing is not supported on this device.');
+      return false;
+    }
+
+    let targetUri = fileUri;
+
+    // Resolve content:// URI from MediaStore to local file:// path if needed
+    if (targetUri.startsWith('content://')) {
+      try {
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(targetUri);
+        if (assetInfo?.localUri) {
+          targetUri = assetInfo.localUri;
+        }
+      } catch {
+        // Fallback below
+      }
+    }
+
+    // Ensure URI is properly prefixed
+    if (!targetUri.startsWith('file://') && !targetUri.startsWith('content://')) {
+      targetUri = `file://${targetUri}`;
+    }
+
+    // Verify file exists on local storage
+    const info = await FileSystem.getInfoAsync(targetUri);
+    if (!info.exists) {
+      const filename = targetUri.split('/').pop();
+      if (filename) {
+        const docPath = `${FileSystem.documentDirectory}${filename}`;
+        const docInfo = await FileSystem.getInfoAsync(docPath);
+        if (docInfo.exists) {
+          targetUri = docPath;
+        } else {
+          Alert.alert('File Not Found', 'The downloaded video file could not be found on storage.');
+          return false;
+        }
+      } else {
+        Alert.alert('File Not Found', 'The downloaded video file could not be found on storage.');
+        return false;
+      }
+    }
+
+    await Sharing.shareAsync(targetUri, {
+      mimeType: 'video/mp4',
+      dialogTitle: 'Play Video',
+    });
+    return true;
+  } catch (err: any) {
+    console.warn('shareSavedMedia failed:', err);
+    Alert.alert('Playback Error', 'Could not open video player.');
     return false;
   }
-  await Sharing.shareAsync(fileUri, {
-    mimeType: 'video/mp4',
-    dialogTitle: 'Share ClipSave Video',
-  });
-  return true;
 }

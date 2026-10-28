@@ -3,6 +3,7 @@ import { DownloadJob, ResolvedMedia } from '../types';
 import {
   addJobToQueue,
   updateJobInQueue,
+  removeJobFromQueue,
   getQueue,
 } from '../storage/queueStore';
 import { addHistoryItem } from '../storage/historyStore';
@@ -285,6 +286,29 @@ export async function cancelDownload(jobId: string): Promise<void> {
     state: 'CANCELLED',
     statusMessage: 'Cancelled by user',
   });
+}
+
+export async function removeDownloadJob(jobId: string): Promise<void> {
+  const session = activeDownloadSessions.get(jobId);
+  if (session) {
+    try {
+      await session.cancelAsync();
+    } catch {
+      // Ignore
+    }
+    activeDownloadSessions.delete(jobId);
+  }
+
+  const job = getQueue().find((j) => j.id === jobId);
+  if (job?.tempFilePath) {
+    try {
+      await FileSystem.deleteAsync(job.tempFilePath, { idempotent: true });
+    } catch {
+      // Ignore
+    }
+  }
+
+  removeJobFromQueue(jobId);
 }
 
 export async function retryDownload(jobId: string): Promise<void> {

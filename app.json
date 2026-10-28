@@ -9,9 +9,9 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/clipsave-logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#090D16"
+      "backgroundColor": "#0B1417"
     },
     "ios": {
       "supportsTablet": true,
@@ -20,8 +20,8 @@
     "android": {
       "package": "com.clipsave.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#090D16"
+        "foregroundImage": "./assets/clipsave-logo.png",
+        "backgroundColor": "#0B1417"
       },
       "permissions": [
         "READ_MEDIA_VIDEO",

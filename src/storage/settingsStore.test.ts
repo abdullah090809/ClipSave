@@ -1,4 +1,4 @@
-import { getSettings, saveSettings, defaultSettings, getDefaultBackendUrl } from './settingsStore';
+import { getSettings, saveSettings, defaultSettings, getDefaultBackendUrl, PRODUCTION_BACKEND_URL } from './settingsStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 describe('settingsStore', () => {
@@ -29,7 +29,19 @@ describe('settingsStore', () => {
   test('UT-SET-03: getDefaultBackendUrl returns valid default address', () => {
     const url = getDefaultBackendUrl();
     expect(url).toBeDefined();
-    expect(url.startsWith('http')).toBe(true);
+    expect(url.startsWith('https://')).toBe(true);
+    expect(url).toContain('snapdeploy.app');
+  });
+
+  test('UT-SET-03B: migrates stored local URL to production deployed URL', async () => {
+    // Seed storage with an old local backend IP from earlier development
+    await AsyncStorage.setItem(
+      '@clipsave_settings_v1',
+      JSON.stringify({ ...defaultSettings, backendBaseUrl: 'http://192.168.1.21:8080' })
+    );
+
+    const settings = await getSettings();
+    expect(settings.backendBaseUrl).toBe(PRODUCTION_BACKEND_URL);
   });
 
   test('UT-SET-04: enableLaunchAnimation defaults to true and persists updates', async () => {
@@ -61,5 +73,19 @@ describe('settingsStore', () => {
 
     const retrieved = await getSettings();
     expect(retrieved.startupAnimation).toBe('off');
+  });
+
+  test('UT-SET-06: palette and accentColor default and persist correctly', async () => {
+    const initial = await getSettings();
+    expect(initial.palette).toBe('warm_light');
+    expect(initial.accentColor).toBe('coral');
+
+    const updated = await saveSettings({ palette: 'midnight', accentColor: 'blue' });
+    expect(updated.palette).toBe('midnight');
+    expect(updated.accentColor).toBe('blue');
+
+    const fresh = await getSettings();
+    expect(fresh.palette).toBe('midnight');
+    expect(fresh.accentColor).toBe('blue');
   });
 });

@@ -3,12 +3,13 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../src/theme/ThemeContext';
-import { spacing, borderRadius } from '../src/theme/spacing';
+import { spacing, borderRadius, layout, iconSize } from '../src/theme/spacing';
 import { typography } from '../src/theme/typography';
 import { Card } from '../src/components/Card';
 import { ScreenHeader } from '../src/components/ScreenHeader';
@@ -29,17 +30,11 @@ export default function AboutScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Brand Hero */}
         <View style={styles.brandHero}>
-          <View
-            style={[
-              styles.logoCircle,
-              {
-                backgroundColor: colors.primaryContainer || colors.primaryLight,
-                borderColor: colors.primary,
-              },
-            ]}
-          >
-            <Ionicons name="film" size={32} color={colors.primary} />
-          </View>
+          <Image
+            source={require('../assets/clipsave-logo.png')}
+            style={{ width: 64, height: 64, borderRadius: 16 }}
+            resizeMode="contain"
+          />
           <Text style={[typography.headlineLarge, { color: colors.textPrimary, marginTop: spacing.md }]}>
             ClipSave
           </Text>
@@ -51,7 +46,7 @@ export default function AboutScreen() {
         {/* Legal Disclaimer & Independence */}
         <Card variant="outlined" style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+            <Ionicons name="shield-checkmark-outline" size={iconSize.md} color={colors.primary} />
             <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
               Legal Disclaimer & Independence
             </Text>
@@ -67,7 +62,7 @@ export default function AboutScreen() {
         {/* Privacy Architecture */}
         <Card variant="outlined" style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="lock-closed-outline" size={20} color={colors.success} />
+            <Ionicons name="lock-closed-outline" size={iconSize.md} color={colors.success} />
             <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
               Privacy Architecture
             </Text>
@@ -88,7 +83,7 @@ export default function AboutScreen() {
         {/* Platform Limitations */}
         <Card variant="outlined" style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="warning-outline" size={20} color={colors.warning} />
+            <Ionicons name="warning-outline" size={iconSize.md} color={colors.warning} />
             <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
               Platform Limitations
             </Text>
@@ -104,7 +99,7 @@ export default function AboutScreen() {
         {/* Open Source Notices */}
         <Card variant="outlined" style={styles.card}>
           <View style={styles.cardTitleRow}>
-            <Ionicons name="code-slash-outline" size={20} color={colors.accent} />
+            <Ionicons name="code-slash-outline" size={iconSize.md} color={colors.accent} />
             <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
               Open Source Notices
             </Text>
@@ -126,9 +121,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxxl,
-    gap: spacing.md,
+    paddingHorizontal: layout.gutter,
+    paddingBottom: spacing.huge,
+    gap: layout.stack,
   },
   brandHero: {
     alignItems: 'center',
@@ -143,7 +138,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   card: {
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   cardTitleRow: {
     flexDirection: 'row',

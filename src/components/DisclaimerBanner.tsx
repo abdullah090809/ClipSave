@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, borderRadius } from '../theme/spacing';
 import { typography } from '../theme/typography';
+import { IconBubble } from './IconBubble';
 
 const DISCLAIMER_DISMISSED_KEY = '@clipsave_disclaimer_dismissed';
 
@@ -42,9 +42,7 @@ export const DisclaimerBanner: React.FC = () => {
       accessibilityRole="alert"
     >
       <View style={styles.content}>
-        <View style={[styles.iconWrapper, { backgroundColor: colors.primaryContainer || colors.primaryLight }]}>
-          <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
-        </View>
+        <IconBubble icon="shield-checkmark" tint="primary" size="sm" />
         <View style={styles.textContainer}>
           <Text style={[typography.titleSmall, { color: colors.textPrimary }]}>
             Authorized Use & Transparency
@@ -79,14 +77,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.sm,
-  },
-  iconWrapper: {
-    width: 32,
-    height: 32,
-    borderRadius: borderRadius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
   },
   textContainer: {
     flex: 1,

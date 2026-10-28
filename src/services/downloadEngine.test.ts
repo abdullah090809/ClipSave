@@ -4,6 +4,7 @@ import {
   resumeDownload,
   cancelDownload,
   retryDownload,
+  removeDownloadJob,
   getActiveDownloadSessionsCount,
 } from './downloadEngine';
 import { getQueue, clearTerminalJobs } from '../storage/queueStore';
@@ -186,5 +187,13 @@ describe('downloadEngine', () => {
     expect(failedJob?.state).toBe('FAILED');
     expect(failedJob?.isRetryable).toBe(false);
     expect(failedJob?.errorMessage).toContain('Disk quota exceeded');
+  });
+
+  test('UT-DL-08: removeDownloadJob removes job completely from queue and cleans active session', async () => {
+    const jobId = await startDownload(sampleMedia);
+    expect(getQueue().some((j) => j.id === jobId)).toBe(true);
+
+    await removeDownloadJob(jobId);
+    expect(getQueue().some((j) => j.id === jobId)).toBe(false);
   });
 });

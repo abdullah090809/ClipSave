@@ -59,10 +59,16 @@ export interface HistoryItem {
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+export type ColorPalette = 'warm_light' | 'midnight' | 'sage';
+
+export type AccentColor = 'coral' | 'blue' | 'violet' | 'green' | 'amber';
+
 export type StartupAnimationMode = 'off' | 'subtle' | 'standard';
 
 export interface AppSettings {
   themeMode: ThemeMode;
+  palette: ColorPalette;
+  accentColor: AccentColor;
   startupAnimation: StartupAnimationMode;
   autoDownloadOnResolve: boolean;
   saveToGallery: boolean;

@@ -2,30 +2,189 @@ import { ResolvedMedia, ResolveError } from '../types';
 import { getSettings } from '../storage/settingsStore';
 import { resolveMockTikTokUrl } from './mockResolver';
 
-export async function resolveTikTokUrl(url: string): Promise<ResolvedMedia> {
+/**
+ * Extracts the SnapDeploy container subdomain if present in URL
+ * e.g. "https://clipsave-96518.containers.snapdeploy.app" -> "clipsave-96518"
+ */
+export function extractSnapDeploySubdomain(baseUrl: string): string | null {
+  const match = baseUrl.match(/https?:\/\/([^.]+)\.containers\.snapdeploy\.app/i);
+  return match ? match[1] : null;
+}
+
+/**
+ * Explicitly sends the wake signal to SnapDeploy's wake API endpoint.
+ * This instructs SnapDeploy to boot the dormant container instance.
+ */
+export async function wakeBackendContainer(subdomainOrUrl?: string): Promise<boolean> {
+  try {
+    let subdomain = subdomainOrUrl;
+    if (!subdomain || subdomain.startsWith('http')) {
+      const settings = await getSettings();
+      subdomain = extractSnapDeploySubdomain(subdomain || settings.backendBaseUrl) || 'clipsave-96518';
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`https://snapdeploy.dev/api/public/wake/${subdomain}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Proactively checks backend health. If sleeping (503 / X-Wake-Page),
+ * immediately triggers container boot so it's warm by the time the user resolves a link.
+ */
+export async function checkAndWarmBackend(): Promise<{ awake: boolean; wokeUp: boolean }> {
+  try {
+    const settings = await getSettings();
+    if (settings.useMockResolver) return { awake: true, wokeUp: false };
+
+    const baseUrl = settings.backendBaseUrl.replace(/\/$/, '');
+    const healthUrl = `${baseUrl}/healthz`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(healthUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (res.status === 200) {
+      return { awake: true, wokeUp: false };
+    }
+
+    // Status 503 or X-Wake-Page indicates SnapDeploy sleeping container
+    if (res.status === 503 || res.headers.get('X-Wake-Page') === 'true') {
+      const subdomain = extractSnapDeploySubdomain(baseUrl) || 'clipsave-96518';
+      await wakeBackendContainer(subdomain);
+      return { awake: false, wokeUp: true };
+    }
+    return { awake: false, wokeUp: false };
+  } catch {
+    // If connection refused / network error, send wake signal as precautionary measure
+    try {
+      const settings = await getSettings();
+      const subdomain = extractSnapDeploySubdomain(settings.backendBaseUrl);
+      if (subdomain) {
+        await wakeBackendContainer(subdomain);
+        return { awake: false, wokeUp: true };
+      }
+    } catch {
+      // ignore
+    }
+    return { awake: false, wokeUp: false };
+  }
+}
+
+export async function resolveTikTokUrl(
+  url: string,
+  onStatusUpdate?: (status: string) => void
+): Promise<ResolvedMedia> {
   const settings = await getSettings();
 
   if (settings.useMockResolver) {
     return resolveMockTikTokUrl(url);
   }
 
-  const endpoint = `${settings.backendBaseUrl.replace(/\/$/, '')}/v1/resolve`;
+  const baseUrl = settings.backendBaseUrl.replace(/\/$/, '');
+  const endpoint = `${baseUrl}/v1/resolve`;
+  const subdomain = extractSnapDeploySubdomain(baseUrl) || 'clipsave-96518';
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 second client timeout
-
-    const response = await fetch(endpoint, {
+  const executeResolve = async (signal?: AbortSignal): Promise<Response> => {
+    const init: RequestInit = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        'User-Agent': 'ClipSave-Mobile/1.0.0 (Android; React-Native)',
       },
       body: JSON.stringify({ url }),
-      signal: controller.signal,
-    });
+    };
+    if (signal) {
+      init.signal = signal;
+    }
+    return fetch(endpoint, init);
+  };
 
-    clearTimeout(timeoutId);
+  try {
+    const controller = new AbortController();
+    // 12-second initial attempt timeout to detect if backend is awake
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    let response: Response;
+
+    try {
+      response = await executeResolve(controller.signal);
+      clearTimeout(timeoutId);
+    } catch (initialErr: any) {
+      clearTimeout(timeoutId);
+      // If timed out or failed to connect, server is likely sleeping
+      response = new Response(null, { status: 503 });
+    }
+
+    // Check if container is sleeping (503 Service Unavailable or wake page header)
+    if (response.status === 503 || response.headers.get('X-Wake-Page') === 'true') {
+      onStatusUpdate?.('Waking up server...');
+      await wakeBackendContainer(subdomain);
+
+      // Poll until container wakes up (up to 40 seconds)
+      const maxAttempts = 18;
+      let isAwake = false;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2200));
+        const elapsed = (i + 1) * 2;
+        if (elapsed >= 16) {
+          onStatusUpdate?.('Almost ready...');
+        } else {
+          onStatusUpdate?.('Waking up server...');
+        }
+
+        try {
+          const pollController = new AbortController();
+          const pollTimeout = setTimeout(() => pollController.abort(), 4000);
+          const healthRes = await fetch(`${baseUrl}/healthz`, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            signal: pollController.signal,
+          });
+          clearTimeout(pollTimeout);
+
+          if (healthRes.status === 200) {
+            isAwake = true;
+            break;
+          }
+        } catch {
+          // Container still initializing
+        }
+      }
+
+      if (isAwake) {
+        onStatusUpdate?.('Server ready! Resolving video...');
+        // Retry resolve request now that container is warm
+        const retryController = new AbortController();
+        const retryTimeout = setTimeout(() => retryController.abort(), 20000);
+        response = await executeResolve(retryController.signal);
+        clearTimeout(retryTimeout);
+      } else {
+        throw {
+          code: 'COLD_START_TIMEOUT',
+          message: 'Server failed to respond in time. Please tap "Get video" to try again.',
+          isRetryable: true,
+        } as ResolveError;
+      }
+    }
 
     const data = await response.json().catch(() => null);
 
@@ -75,20 +234,20 @@ export async function resolveTikTokUrl(url: string): Promise<ResolvedMedia> {
       isCleanSourceVerified: !!data.isCleanSourceVerified,
     };
   } catch (error: any) {
+    if (error.code && error.message) {
+      throw error;
+    }
     if (error.name === 'AbortError') {
       throw {
         code: 'TIMEOUT',
-        message: 'Resolver request timed out. Please check your network connection.',
+        message: 'Resolver request timed out. The server may be waking up from sleep. Please try again in a moment.',
         isRetryable: true,
       } as ResolveError;
-    }
-    if (error.code && error.message) {
-      throw error;
     }
     // Network failure (offline, connection refused)
     throw {
       code: 'NETWORK_FAILURE',
-      message: 'Could not connect to the ClipSave resolver backend. Check your network or enable Mock Resolver in Settings for offline testing.',
+      message: 'Could not connect to the ClipSave resolver backend. Please check your internet connection.',
       isRetryable: true,
     } as ResolveError;
   }

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing, borderRadius } from '../theme/spacing';
+import { spacing, borderRadius, layout, iconSize } from '../theme/spacing';
 import { typography } from '../theme/typography';
 
 export interface ScreenHeaderProps {
@@ -39,7 +39,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
             accessibilityRole="button"
             accessibilityLabel={backAccessibilityLabel}
           >
-            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+            <Ionicons name="arrow-back" size={iconSize.lg} color={colors.textPrimary} />
           </Pressable>
         )}
         <View style={styles.titleArea}>
@@ -65,7 +65,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
           {rightAction.icon && (
             <Ionicons
               name={rightAction.icon}
-              size={18}
+              size={iconSize.md}
               color={rightAction.destructive ? colors.danger : colors.primary}
               style={rightAction.label ? { marginRight: 4 } : undefined}
             />
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: layout.gutter,
     paddingVertical: spacing.md,
     minHeight: 56,
   },

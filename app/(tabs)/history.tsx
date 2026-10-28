@@ -14,17 +14,18 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { useTheme } from '../../src/theme/ThemeContext';
-import { spacing } from '../../src/theme/spacing';
+import { spacing, layout, borderRadius } from '../../src/theme/spacing';
 import { typography } from '../../src/theme/typography';
 import { BottomSheetMenu, SheetAction } from '../../src/components/BottomSheetMenu';
 import {
   getHistory,
-  removeHistoryEntryOnly,
   deleteHistoryEntryAndFile,
+  clearHistoryAndFiles,
 } from '../../src/storage/historyStore';
 import { shareSavedMedia } from '../../src/services/mediaManager';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
+import { TabHeader } from '../../src/components/TabHeader';
 
 type SortOption = 'newest' | 'oldest' | 'size';
 
@@ -39,7 +40,7 @@ export default function HistoryScreen() {
   const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(null);
   const [showItemMenu, setShowItemMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
-  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showTopMenu, setShowTopMenu] = useState(false);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -56,7 +57,7 @@ export default function HistoryScreen() {
     }, [loadHistory])
   );
 
-  // Filtered and Sorted list
+  // Filtered and sorted list
   const filteredList = useMemo(() => {
     let result = [...history];
 
@@ -82,48 +83,7 @@ export default function HistoryScreen() {
     return result;
   }, [history, searchQuery, sortOption]);
 
-  // Statistics
-  const totalSaved = history.length;
-  const totalSizeBytes = useMemo(
-    () => history.reduce((sum, it) => sum + (it.fileSizeBytes || 0), 0),
-    [history]
-  );
-  const storageUsedFormatted = formatBytes(totalSizeBytes);
-  // Estimate video count vs image slideshow count
-  const videoCount = history.filter((it) => it.durationSeconds && it.durationSeconds > 0).length || totalSaved;
-  const imageCount = Math.max(0, totalSaved - videoCount);
-
-  // Group into Today, Yesterday, Older
-  const groupedSections = useMemo(() => {
-    const today: HistoryItem[] = [];
-    const yesterday: HistoryItem[] = [];
-    const older: HistoryItem[] = [];
-
-    const now = new Date();
-    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const yesterdayMidnight = todayMidnight - 86400000;
-
-    filteredList.forEach((item) => {
-      const t = new Date(item.savedAt).getTime() || 0;
-      if (t >= todayMidnight) {
-        today.push(item);
-      } else if (t >= yesterdayMidnight) {
-        yesterday.push(item);
-      } else {
-        older.push(item);
-      }
-    });
-
-    return [
-      { key: 'today', title: `Today (${today.length} videos)`, data: today },
-      { key: 'yesterday', title: `Yesterday (${yesterday.length} videos)`, data: yesterday },
-      { key: 'older', title: `Older (${older.length} videos)`, data: older },
-    ].filter((sec) => sec.data.length > 0);
-  }, [filteredList]);
-
-  // Actions
   const handleOpenVideo = useCallback((item: HistoryItem) => {
-    // Open through system player / share
     shareSavedMedia(item.fileUri);
   }, []);
 
@@ -134,28 +94,44 @@ export default function HistoryScreen() {
   const handleCopyLink = useCallback(async (item: HistoryItem) => {
     if (item.sourceUrl) {
       await Clipboard.setStringAsync(item.sourceUrl);
-      Alert.alert('Link Copied', 'TikTok video URL copied to clipboard.');
+      Alert.alert('Link Copied', 'Original TikTok link copied to clipboard.');
     } else {
-      Alert.alert('No URL', 'Source URL is unavailable for this item.');
+      Alert.alert('No URL', 'Source link is unavailable for this item.');
     }
   }, []);
 
-  const handleRemoveEntryOnly = useCallback(async (item: HistoryItem) => {
-    await removeHistoryEntryOnly(item.id);
-    loadHistory();
-  }, [loadHistory]);
+  const handleDeleteFile = useCallback(
+    (item: HistoryItem) => {
+      Alert.alert(
+        'Delete from Device?',
+        `Permanently delete "${item.title || 'this video'}" and its file from storage?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              await deleteHistoryEntryAndFile(item.id);
+              loadHistory();
+            },
+          },
+        ]
+      );
+    },
+    [loadHistory]
+  );
 
-  const handleDeleteFile = useCallback((item: HistoryItem) => {
+  const handleClearAll = useCallback(() => {
     Alert.alert(
-      'Delete from Device?',
-      `Permanently delete "${item.title || 'this video'}" and its file from storage?`,
+      'Clear All History?',
+      'Permanently delete all downloaded videos and history? This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete Permanently',
+          text: 'Clear All',
           style: 'destructive',
           onPress: async () => {
-            await deleteHistoryEntryAndFile(item.id);
+            await clearHistoryAndFiles();
             loadHistory();
           },
         },
@@ -163,11 +139,54 @@ export default function HistoryScreen() {
     );
   }, [loadHistory]);
 
+  const topMenuActions: SheetAction[] = [
+    {
+      key: 'sort-newest',
+      label: 'Sort: Newest First',
+      icon: 'time-outline',
+      onPress: () => setSortOption('newest'),
+    },
+    {
+      key: 'sort-size',
+      label: 'Sort: Largest Size',
+      icon: 'server-outline',
+      onPress: () => setSortOption('size'),
+    },
+    {
+      key: 'clear-all',
+      label: 'Clear All History',
+      icon: 'trash-outline',
+      destructive: true,
+      onPress: handleClearAll,
+    },
+  ];
+
+  const filterMenuActions: SheetAction[] = [
+    {
+      key: 'newest',
+      label: 'Newest First',
+      icon: sortOption === 'newest' ? 'checkmark-circle' : 'time-outline',
+      onPress: () => setSortOption('newest'),
+    },
+    {
+      key: 'oldest',
+      label: 'Oldest First',
+      icon: sortOption === 'oldest' ? 'checkmark-circle' : 'calendar-outline',
+      onPress: () => setSortOption('oldest'),
+    },
+    {
+      key: 'size',
+      label: 'Largest File Size',
+      icon: sortOption === 'size' ? 'checkmark-circle' : 'file-tray-full-outline',
+      onPress: () => setSortOption('size'),
+    },
+  ];
+
   const itemMenuActions: SheetAction[] = selectedItem
     ? [
         {
-          key: 'open',
-          label: 'Play / Open Video',
+          key: 'play',
+          label: 'Play Video',
           icon: 'play-circle-outline',
           onPress: () => handleOpenVideo(selectedItem),
         },
@@ -189,20 +208,14 @@ export default function HistoryScreen() {
           icon: 'arrow-down-circle-outline',
           onPress: () => {
             router.push({
-              pathname: '/(tabs)',
+              pathname: '/',
               params: { prefill: selectedItem.sourceUrl, ts: String(Date.now()) },
             });
           },
         },
         {
-          key: 'remove-entry',
-          label: 'Remove from History (Keep File)',
-          icon: 'list-outline',
-          onPress: () => handleRemoveEntryOnly(selectedItem),
-        },
-        {
-          key: 'delete-all',
-          label: 'Delete Permanently from Device',
+          key: 'delete',
+          label: 'Delete Permanently',
           icon: 'trash-outline',
           destructive: true,
           onPress: () => handleDeleteFile(selectedItem),
@@ -210,259 +223,225 @@ export default function HistoryScreen() {
       ]
     : [];
 
-  const filterMenuActions: SheetAction[] = [
-    {
-      key: 'newest',
-      label: 'Sort: Newest First',
-      icon: 'arrow-down-outline',
-      onPress: () => setSortOption('newest'),
-    },
-    {
-      key: 'oldest',
-      label: 'Sort: Oldest First',
-      icon: 'arrow-up-outline',
-      onPress: () => setSortOption('oldest'),
-    },
-    {
-      key: 'size',
-      label: 'Sort: File Size',
-      icon: 'layers-outline',
-      onPress: () => setSortOption('size'),
-    },
-  ];
-
-  const headerMenuActions: SheetAction[] = [
-    {
-      key: 'refresh',
-      label: 'Refresh Library',
-      icon: 'refresh-outline',
-      onPress: loadHistory,
-    },
-    {
-      key: 'settings',
-      label: 'Storage & Cleanup Settings',
-      icon: 'settings-outline',
-      onPress: () => router.push('/(tabs)/settings'),
-    },
-  ];
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* 1. TOP HEADER */}
-      <View style={[styles.header, { borderBottomColor: colors.outlineVariant }]}>
-        <View style={styles.headerLeft}>
-          <View style={[styles.logoIconBox, { backgroundColor: colors.primary }]}>
-            <Ionicons name="film" size={16} color="#FFFFFF" />
-          </View>
-          <View style={styles.headerTitleBox}>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary, fontWeight: '800' }]}>
-              ClipSave
-            </Text>
-            <Text style={[typography.caption, { color: colors.accent, fontWeight: '600' }]}>
-              Your saved videos
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.headerRight}>
-          <Pressable
-            onPress={() => setShowFilterMenu(true)}
-            style={[styles.headerIconBtn, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Filter videos"
-          >
-            <Ionicons name="filter-outline" size={19} color={colors.textPrimary} />
-          </Pressable>
-
-          <Pressable
-            onPress={() => setShowHeaderMenu(true)}
-            style={[styles.headerIconBtn, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant, marginLeft: spacing.sm }]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="More options"
-          >
-            <Ionicons name="ellipsis-vertical" size={19} color={colors.textPrimary} />
-          </Pressable>
-        </View>
-      </View>
+      {/* 1. COMPACT TOP HEADER WITH LOGO + "HISTORY" + 3-DOTS OVERFLOW */}
+      <TabHeader
+        title="History"
+        onOverflowPress={() => setShowTopMenu(true)}
+        overflowLabel="History options"
+      />
 
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xxl }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + layout.section + 24 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {/* 2. SEARCH & FILTER BAR */}
-        <View style={styles.searchFilterRow}>
-          <View style={[styles.searchBox, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-            <Ionicons name="search-outline" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
+        {/* 2. SEARCH INPUT AND FILTER BUTTON ROW */}
+        <View style={styles.searchRow}>
+          <View
+            style={[
+              styles.searchBar,
+              {
+                backgroundColor: colors.inputBackground,
+                borderColor: colors.inputBorder,
+              },
+            ]}
+          >
+            <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
             <TextInput
-              style={[styles.searchInput, { color: colors.textPrimary }]}
+              style={[
+                styles.searchInput,
+                typography.body,
+                { color: colors.textPrimary },
+              ]}
               placeholder="Search videos..."
               placeholderTextColor={colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="Search saved videos"
             />
             {searchQuery.length > 0 && (
-              <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+              <Pressable
+                onPress={() => setSearchQuery('')}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search query"
+              >
+                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
               </Pressable>
             )}
           </View>
 
+          {/* Filter Chip Button */}
           <Pressable
             onPress={() => setShowFilterMenu(true)}
-            style={[styles.filterBtn, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
+            android_ripple={{ color: colors.ripple }}
+            style={[
+              styles.filterButton,
+              {
+                backgroundColor: colors.surfaceContainer,
+                borderColor: colors.outlineVariant,
+              },
+            ]}
             accessibilityRole="button"
+            accessibilityLabel="Filter and sort saved videos"
           >
-            <Text style={[typography.labelMedium, { color: colors.textPrimary, fontWeight: '700' }]}>Filter</Text>
-            <Ionicons name="chevron-down" size={14} color={colors.textPrimary} style={{ marginLeft: 4 }} />
+            <Ionicons name="filter-outline" size={16} color={colors.textPrimary} />
+            <Text style={[typography.labelMedium, { color: colors.textPrimary, marginLeft: 4 }]}>
+              Filter
+            </Text>
           </Pressable>
         </View>
 
-        {/* 3. STATS DASHBOARD CARD (4 METRIC BOXES) */}
-        <View style={[styles.dashboardCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-          {/* Box 1: Total Saved (Highlighted) */}
-          <View style={[styles.statBox, styles.statBoxPrimary, { backgroundColor: colors.primaryContainer, borderColor: colors.primary }]}>
-            <Text style={[styles.statNumber, { color: colors.primary }]}>{totalSaved}</Text>
-            <Text style={[styles.statLabel, { color: colors.primary }]}>Total Saved</Text>
-          </View>
+        {/* 3. SAVED VIDEO LIST OR CLEAN EMPTY STATE */}
+        {filteredList.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <View
+              style={[
+                styles.emptyIconCircle,
+                { backgroundColor: colors.surfaceContainer, borderColor: colors.surfaceBorder },
+              ]}
+            >
+              <Ionicons name="film-outline" size={36} color={colors.textMuted} />
+            </View>
+            <Text
+              style={[
+                typography.titleLarge,
+                { color: colors.textPrimary, fontWeight: '700', marginTop: spacing.md },
+              ]}
+            >
+              {history.length === 0 ? 'No Saved Videos Yet' : 'No Matching Videos'}
+            </Text>
+            <Text
+              style={[
+                typography.bodyMedium,
+                { color: colors.textSecondary, textAlign: 'center', marginTop: 4, paddingHorizontal: spacing.lg },
+              ]}
+            >
+              {history.length === 0
+                ? 'Videos you download will appear here automatically.'
+                : 'Try adjusting your search terms or filter selection.'}
+            </Text>
 
-          {/* Box 2: Videos */}
-          <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
-            <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{videoCount}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Videos</Text>
-          </View>
-
-          {/* Box 3: Images */}
-          <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
-            <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{imageCount}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Images</Text>
-          </View>
-
-          {/* Box 4: Storage Used */}
-          <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
-            <Text style={[styles.statNumber, { color: colors.accent }]}>{storageUsedFormatted}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Storage Used</Text>
-          </View>
-        </View>
-
-        {/* 4. GROUPED TIME SECTIONS */}
-        {groupedSections.length > 0 ? (
-          groupedSections.map((section) => (
-            <View key={section.key} style={styles.sectionBlock}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={[typography.titleSmall, { color: colors.textPrimary, fontWeight: '700' }]}>
-                  {section.title}
+            {history.length === 0 && (
+              <Pressable
+                onPress={() => router.navigate('/')}
+                android_ripple={{ color: colors.ripplePrimary }}
+                style={[styles.emptyActionButton, { backgroundColor: colors.primary }]}
+                accessibilityRole="button"
+                accessibilityLabel="Go to Home to download a video"
+              >
+                <Ionicons name="download-outline" size={18} color={colors.onPrimary} />
+                <Text style={[typography.labelMedium, { color: colors.onPrimary, fontWeight: '700' }]}>
+                  Download Videos
                 </Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-              </View>
-
-              <View style={styles.sectionList}>
-                {section.data.map((item) => (
-                  <View
-                    key={item.id}
-                    style={[styles.videoRowCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}
-                  >
-                    <View style={[styles.videoThumbBox, { backgroundColor: colors.surface }]}>
-                      {item.thumbnailUrl ? (
-                        <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumb} resizeMode="cover" />
-                      ) : (
-                        <Ionicons name="film-outline" size={22} color={colors.textMuted} />
-                      )}
-                      <View style={styles.playOverlay}>
-                        <Ionicons name="play" size={14} color="#FFFFFF" />
-                      </View>
-                      {item.durationSeconds ? (
-                        <View style={styles.durationOverlayBadge}>
-                          <Text style={styles.durationOverlayText}>{formatDuration(item.durationSeconds)}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    <View style={styles.videoMetaCol}>
-                      <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]} numberOfLines={2}>
-                        {item.title || 'TikTok Video'}
-                      </Text>
-                      <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                        TikTok • {formatBytes(item.fileSizeBytes)}
-                        {item.durationSeconds ? ` • ${formatDuration(item.durationSeconds)}` : ''}
-                      </Text>
-                      <Text style={[typography.captionMedium, { color: colors.accent, marginTop: 3 }]}>
-                        📅 {new Date(item.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </View>
-
-                    <View style={styles.videoActionsRow}>
-                      <Pressable
-                        onPress={() => handleOpenVideo(item)}
-                        style={[styles.openPillBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Open video"
-                      >
-                        <Text style={[typography.captionMedium, { color: colors.textPrimary, fontWeight: '700' }]}>
-                          Open
-                        </Text>
-                      </Pressable>
-
-                      <Pressable
-                        onPress={() => {
-                          setSelectedItem(item);
-                          setShowItemMenu(true);
-                        }}
-                        style={styles.moreBtn}
-                        hitSlop={8}
-                        accessibilityLabel="More options"
-                      >
-                        <Ionicons name="ellipsis-vertical" size={18} color={colors.textMuted} />
-                      </Pressable>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ))
-        ) : (
-          <View style={[styles.emptyContainer, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-            <View style={[styles.emptyOrb, { backgroundColor: colors.primaryContainer }]}>
-              <Ionicons name="film-outline" size={32} color={colors.primary} />
-            </View>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginTop: 12, fontWeight: '700' }]}>
-              {searchQuery ? 'No Videos Found' : 'No Saved Videos Yet'}
-            </Text>
-            <Text style={[typography.bodySmall, { color: colors.textMuted, marginTop: 4, textAlign: 'center' }]}>
-              {searchQuery
-                ? 'Try a different search keyword.'
-                : 'Videos you download will appear here automatically.'}
-            </Text>
+              </Pressable>
+            )}
           </View>
+        ) : (
+          filteredList.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => handleOpenVideo(item)}
+              android_ripple={{ color: colors.ripple }}
+              style={[
+                styles.historyCard,
+                {
+                  backgroundColor: colors.surfaceContainer,
+                  borderColor: colors.surfaceBorder,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Saved video: ${item.title || 'TikTok video'}`}
+            >
+              {/* Thumbnail with duration badge and play icon overlay */}
+              <View style={styles.thumbnailWrapper}>
+                {item.thumbnailUrl ? (
+                  <Image
+                    source={{ uri: item.thumbnailUrl }}
+                    style={styles.thumbnailImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.thumbnailPlaceholder, { backgroundColor: colors.surfaceContainerHigh }]}>
+                    <Ionicons name="film-outline" size={24} color={colors.primary} />
+                  </View>
+                )}
+                <View style={styles.playOverlay}>
+                  <Ionicons name="play" size={12} color="#FFFFFF" />
+                </View>
+                {item.durationSeconds ? (
+                  <View style={styles.durationBadge}>
+                    <Text style={styles.durationText}>
+                      {formatDuration(item.durationSeconds)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Title & Metadata */}
+              <View style={styles.metaCol}>
+                <Text
+                  style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}
+                  numberOfLines={2}
+                >
+                  {item.title || 'TikTok Video'}
+                </Text>
+                <Text
+                  style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}
+                  numberOfLines={1}
+                >
+                  @{item.author || 'creator'}
+                </Text>
+                <Text style={[typography.caption, { color: colors.textMuted, marginTop: 2 }]}>
+                  {item.fileSizeBytes ? `${formatBytes(item.fileSizeBytes)} • ` : ''}
+                  {item.savedAt ? new Date(item.savedAt).toLocaleDateString() : 'Saved'}
+                </Text>
+              </View>
+
+              {/* 3-Dots Action Menu */}
+              <Pressable
+                onPress={() => {
+                  setSelectedItem(item);
+                  setShowItemMenu(true);
+                }}
+                style={styles.dotsButton}
+                accessibilityRole="button"
+                accessibilityLabel="Video options"
+                hitSlop={8}
+              >
+                <Ionicons name="ellipsis-vertical" size={18} color={colors.textSecondary} />
+              </Pressable>
+            </Pressable>
+          ))
         )}
       </ScrollView>
 
-      {/* Item Actions Bottom Sheet */}
+      {/* Top Header Overflow Menu */}
       <BottomSheetMenu
-        visible={showItemMenu}
-        title={selectedItem?.title || 'Video Options'}
-        actions={itemMenuActions}
-        onClose={() => {
-          setShowItemMenu(false);
-          setSelectedItem(null);
-        }}
+        visible={showTopMenu}
+        onClose={() => setShowTopMenu(false)}
+        title="History Options"
+        actions={topMenuActions}
       />
 
-      {/* Filter Bottom Sheet */}
+      {/* Filter and Sort Menu */}
       <BottomSheetMenu
         visible={showFilterMenu}
-        title="Sort & Filter Library"
-        actions={filterMenuActions}
         onClose={() => setShowFilterMenu(false)}
+        title="Sort Videos By"
+        actions={filterMenuActions}
       />
 
-      {/* Header Menu Bottom Sheet */}
+      {/* Item Action Sheet */}
       <BottomSheetMenu
-        visible={showHeaderMenu}
-        title="Library Settings"
-        actions={headerMenuActions}
-        onClose={() => setShowHeaderMenu(false)}
+        visible={showItemMenu}
+        onClose={() => setShowItemMenu(false)}
+        title={selectedItem?.title || 'Video Options'}
+        actions={itemMenuActions}
       />
     </SafeAreaView>
   );
@@ -472,188 +451,120 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logoIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitleBox: {
-    marginLeft: 10,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingHorizontal: layout.gutter,
+    paddingTop: spacing.sm,
   },
-  searchFilterRow: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
     marginBottom: spacing.md,
-    gap: 8,
   },
-  searchBox: {
+  searchBar: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
     borderWidth: 1,
+    borderRadius: borderRadius.lg,
     paddingHorizontal: spacing.md,
-    height: 44,
+    minHeight: 46,
+    gap: spacing.xs,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    height: 42,
     paddingVertical: 0,
   },
-  filterBtn: {
+  filterButton: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  // Dashboard Card
-  dashboardCard: {
-    flexDirection: 'row',
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 10,
-    gap: 8,
-    marginBottom: spacing.lg,
-  },
-  statBox: {
-    flex: 1,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    minHeight: 46,
   },
-  statBoxPrimary: {
-    borderWidth: 1.5,
-  },
-  statNumber: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  statLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  // Sections
-  sectionBlock: {
-    marginBottom: spacing.lg,
-  },
-  sectionHeaderRow: {
+  historyCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  sectionList: {
-    gap: 10,
-  },
-  videoRowCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 14,
+    borderRadius: borderRadius.lg,
     borderWidth: 1,
     padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.md,
   },
-  videoThumbBox: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
+  thumbnailWrapper: {
+    width: 68,
+    height: 92,
+    borderRadius: borderRadius.md,
     overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
     position: 'relative',
+    backgroundColor: '#000000',
   },
-  videoThumb: {
+  thumbnailImage: {
     width: '100%',
     height: '100%',
   },
+  thumbnailPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   playOverlay: {
     position: 'absolute',
+    top: '50%',
+    left: '50%',
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    transform: [{ translateX: -12 }, { translateY: -12 }],
     alignItems: 'center',
     justifyContent: 'center',
+    paddingLeft: 2,
   },
-  durationOverlayBadge: {
+  durationBadge: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    bottom: 3,
+    right: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     paddingHorizontal: 4,
-    borderRadius: 3,
+    paddingVertical: 1,
+    borderRadius: 4,
   },
-  durationOverlayText: {
+  durationText: {
     color: '#FFFFFF',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '700',
   },
-  videoMetaCol: {
+  metaCol: {
     flex: 1,
-    marginLeft: spacing.md,
   },
-  videoActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: spacing.sm,
-  },
-  openPillBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  moreBtn: {
-    padding: 6,
-    marginLeft: 4,
+  dotsButton: {
+    padding: spacing.xs,
   },
   emptyContainer: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: spacing.xxl,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.xl,
+    paddingVertical: spacing.xxl,
   },
-  emptyOrb: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  emptyActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.lg,
   },
 });

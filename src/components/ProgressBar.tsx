@@ -1,8 +1,40 @@
 import React, { useEffect, useRef, memo } from 'react';
-import { View, StyleSheet, Animated, Text } from 'react-native';
+import { View, StyleSheet, Animated, Text, StyleProp, ViewStyle } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, borderRadius } from '../theme/spacing';
 import { typography } from '../theme/typography';
+import { motion, isReduceMotion } from '../theme/motion';
+
+/**
+ * Bar fill that glides to its new width instead of jumping. `percent` is 0-100.
+ * Width cannot use the native driver, but it only runs while progress changes.
+ */
+export const AnimatedFill: React.FC<{ percent: number; style?: StyleProp<ViewStyle> }> = ({ percent, style }) => {
+  const value = useRef(new Animated.Value(percent)).current;
+
+  useEffect(() => {
+    if (isReduceMotion()) {
+      value.setValue(percent);
+      return;
+    }
+    const anim = Animated.timing(value, {
+      toValue: percent,
+      duration: motion.duration.progress,
+      easing: motion.easing.move,
+      useNativeDriver: false,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [percent, value]);
+
+  const width = value.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+    extrapolate: 'clamp',
+  });
+
+  return <Animated.View style={[style, { width }]} />;
+};
 
 export interface ProgressBarProps {
   progress?: number | undefined; // 0.0 to 1.0; undefined/null for indeterminate
@@ -72,14 +104,9 @@ export const ProgressBar: React.FC<ProgressBarProps> = memo(({
             ]}
           />
         ) : (
-          <View
-            style={[
-              styles.fill,
-              {
-                backgroundColor: colors.primary,
-                width: `${percentageInt}%`,
-              },
-            ]}
+          <AnimatedFill
+            percent={percentageInt}
+            style={[styles.fill, { backgroundColor: colors.primary }]}
           />
         )}
       </View>

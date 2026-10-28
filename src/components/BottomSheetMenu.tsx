@@ -1,5 +1,6 @@
 import { Modal, Pressable, Text, View, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { iconSize } from '../theme/spacing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { typography } from '../theme/typography';
@@ -61,7 +62,7 @@ export function BottomSheetMenu({ visible, title, actions, onClose }: Props) {
               accessibilityRole="button"
               accessibilityLabel={a.label}
             >
-              <Ionicons name={a.icon} size={22} color={color} />
+              <Ionicons name={a.icon} size={iconSize.lg} color={color} />
               <Text style={[typography.bodyMedium, { color, marginLeft: 16 }]}>{a.label}</Text>
             </Pressable>
           );

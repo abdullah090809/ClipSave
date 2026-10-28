@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { LayoutAnimation } from 'react-native';
 import { subscribeQueue } from '../storage/queueStore';
 import { DownloadJob } from '../types';
 import { jobStructureKey } from '../utils/jobDisplay';
+import { isReduceMotion } from '../theme/motion';
 
 /**
  * Job list that only updates when the list's structure changes (jobs added,
@@ -16,6 +18,11 @@ export function useQueueStructure(): DownloadJob[] {
     return subscribeQueue((next) => {
       const key = next.map(jobStructureKey).join('|');
       if (key === keyRef.current) return;
+      // Animate cards sliding into place when jobs are added, removed or move
+      // between sections. Skipped for the first load and for reduced motion.
+      if (keyRef.current !== null && !isReduceMotion()) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
       keyRef.current = key;
       setJobs(next);
     });

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Pressable,
   Text,
   ActivityIndicator,
   ViewStyle,
@@ -8,8 +7,9 @@ import {
   Platform,
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing, borderRadius, elevation } from '../theme/spacing';
+import { spacing, borderRadius, elevation, layout } from '../theme/spacing';
 import { typography } from '../theme/typography';
+import { PressableScale } from './PressableScale';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'tonal' | 'danger' | 'outline' | 'ghost';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -57,7 +57,7 @@ export const Button: React.FC<ButtonProps> = ({
         };
       case 'lg':
         return {
-          minHeight: 54,
+          minHeight: layout.control,
           paddingVertical: spacing.md + 2,
           paddingHorizontal: spacing.xxl,
         };
@@ -132,8 +132,9 @@ export const Button: React.FC<ButtonProps> = ({
     }
     switch (variant) {
       case 'primary':
+        return colors.onPrimary;
       case 'danger':
-        return '#FFFFFF';
+        return colors.onDanger;
       case 'tonal':
         return colors.onPrimaryContainer || colors.primary;
       case 'outline':
@@ -151,7 +152,7 @@ export const Button: React.FC<ButtonProps> = ({
       : colors.ripple || (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)');
 
   return (
-    <Pressable
+    <PressableScale
       testID={testID}
       onPress={onPress}
       disabled={!isInteractive}
@@ -159,13 +160,7 @@ export const Button: React.FC<ButtonProps> = ({
         color: rippleColor,
         borderless: false,
       }}
-      style={({ pressed }) => [
-        getBaseStyle(),
-        style,
-        {
-          opacity: !isInteractive ? 0.55 : pressed && Platform.OS !== 'android' ? 0.75 : 1,
-        },
-      ]}
+      style={[getBaseStyle(), style, { opacity: !isInteractive ? 0.55 : 1 }]}
       accessible={true}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || title}
@@ -191,6 +186,6 @@ export const Button: React.FC<ButtonProps> = ({
           ) : null}
         </>
       )}
-    </Pressable>
+    </PressableScale>
   );
 };

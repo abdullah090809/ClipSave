@@ -1,9 +1,15 @@
-import { resolveTikTokUrl } from './apiClient';
+import { resolveTikTokUrl, extractSnapDeploySubdomain } from './apiClient';
 import { saveSettings } from '../storage/settingsStore';
 
 describe('apiClient', () => {
   beforeEach(async () => {
     await saveSettings({ useMockResolver: true });
+  });
+
+  test('extractSnapDeploySubdomain accurately extracts container identifier', () => {
+    expect(extractSnapDeploySubdomain('https://clipsave-96518.containers.snapdeploy.app')).toBe('clipsave-96518');
+    expect(extractSnapDeploySubdomain('http://my-service.containers.snapdeploy.app/')).toBe('my-service');
+    expect(extractSnapDeploySubdomain('http://localhost:8000')).toBeNull();
   });
 
   test('resolves valid public TikTok URL in mock resolver mode', async () => {
