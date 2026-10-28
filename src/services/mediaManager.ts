@@ -1,6 +1,6 @@
 import { Alert, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { getQueue } from '../storage/queueStore';
@@ -107,15 +107,15 @@ export interface SaveMediaResult {
 export async function ensureMediaLibraryPermissions(): Promise<boolean> {
   try {
     let perm = await MediaLibrary.getPermissionsAsync();
-    if (perm.status === 'granted') {
+    if (perm?.status === 'granted') {
       return true;
     }
     perm = await MediaLibrary.requestPermissionsAsync();
-    if (perm.status === 'granted') {
+    if (perm?.status === 'granted') {
       return true;
     }
     perm = await MediaLibrary.requestPermissionsAsync(true);
-    return perm.status === 'granted';
+    return perm?.status === 'granted';
   } catch (err) {
     console.warn('ensureMediaLibraryPermissions failed:', err);
     return false;
@@ -200,9 +200,9 @@ export async function saveCompletedMedia(
           try {
             const album = await MediaLibrary.getAlbumAsync('ClipSave');
             if (album) {
-              await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+              await MediaLibrary.addAssetsToAlbumAsync([asset], album, true);
             } else {
-              await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
+              await MediaLibrary.createAlbumAsync('ClipSave', asset, true);
             }
           } catch {
             // Album grouping optional; asset is already in MediaStore

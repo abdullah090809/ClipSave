@@ -22,8 +22,8 @@ jest.mock('expo-file-system/legacy', () => ({
   })),
 }));
 
-// Mock expo-media-library
-jest.mock('expo-media-library', () => ({
+// Mock expo-media-library and expo-media-library/legacy
+const mockMediaLibrary = {
   getPermissionsAsync: jest.fn(async () => ({ status: 'undetermined' })),
   requestPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   createAssetAsync: jest.fn(async (uri) => ({ uri })),
@@ -31,7 +31,10 @@ jest.mock('expo-media-library', () => ({
   getAlbumAsync: jest.fn(async () => null),
   createAlbumAsync: jest.fn(async () => {}),
   addAssetsToAlbumAsync: jest.fn(async () => {}),
-}));
+  getAssetInfoAsync: jest.fn(async (uri) => ({ localUri: uri })),
+};
+jest.mock('expo-media-library', () => mockMediaLibrary);
+jest.mock('expo-media-library/legacy', () => mockMediaLibrary);
 
 // Mock expo-sharing
 jest.mock('expo-sharing', () => ({
