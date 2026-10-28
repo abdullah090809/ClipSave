@@ -223,6 +223,12 @@ export async function resolveTikTokUrl(
       } as ResolveError;
     }
 
+    let mediaUrl: string = data.mediaUrl;
+    // Ensure mediaUrl uses HTTPS for public hosts to satisfy Android NetworkSecurityPolicy
+    if (mediaUrl && mediaUrl.startsWith('http://') && !mediaUrl.includes('127.0.0.1') && !mediaUrl.includes('localhost')) {
+      mediaUrl = mediaUrl.replace(/^http:\/\//i, 'https://');
+    }
+
     return {
       id: String(data.id || Date.now()),
       sourceUrl: url,
@@ -231,7 +237,7 @@ export async function resolveTikTokUrl(
       authorUsername: data.authorUsername,
       durationSeconds: data.durationSeconds,
       thumbnailUrl: data.thumbnailUrl,
-      mediaUrl: data.mediaUrl,
+      mediaUrl,
       directMediaUrl: data.directMediaUrl,
       httpHeaders: data.httpHeaders,
       estimatedSizeBytes: data.estimatedSizeBytes,

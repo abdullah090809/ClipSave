@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "com.clipsave.app",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/clipsave-logo.png",
         "backgroundColor": "#0B1417"

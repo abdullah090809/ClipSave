@@ -176,10 +176,20 @@ async function executeDownloadStream(
     };
 
     const currentJob = getQueue().find((j) => j.id === jobId);
-    const headers = currentJob?.media.httpHeaders;
 
-    const downloadResumable = FileSystem.createDownloadResumable(
-      mediaUrl,
+    // Ensure secure HTTPS URL on Android
+    let targetUrl = mediaUrl;
+    if (targetUrl.startsWith('http://') && !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+      targetUrl = targetUrl.replace(/^http:\/\//i, 'https://');
+    }
+
+    // Proxy endpoints (/v1/stream) already have upstream headers stored on the server.
+    // Direct CDN URLs need the extracted TikTok cookies & headers.
+    const isProxyUrl = targetUrl.includes('/v1/stream/');
+    const headers = isProxyUrl ? undefined : currentJob?.media.httpHeaders;
+
+    let downloadResumable = FileSystem.createDownloadResumable(
+      targetUrl,
       tempPath,
       headers ? { headers } : {},
       callback
@@ -187,12 +197,30 @@ async function executeDownloadStream(
 
     activeDownloadSessions.set(jobId, downloadResumable);
 
-    const result = await downloadResumable.downloadAsync();
+    let result = await downloadResumable.downloadAsync();
 
     // Check if job was paused or cancelled while download was in flight
     const jobAfter = getQueue().find((j) => j.id === jobId);
     if (jobAfter?.state === 'PAUSED' || jobAfter?.state === 'CANCELLED') {
       return;
+    }
+
+    // Resilient fallback: If proxy stream failed, attempt direct CDN URL
+    if (
+      (!result || (result.status !== 200 && result.status !== 206)) &&
+      currentJob?.media.directMediaUrl &&
+      isProxyUrl
+    ) {
+      const directUrl = currentJob.media.directMediaUrl;
+      const directHeaders = currentJob.media.httpHeaders;
+      downloadResumable = FileSystem.createDownloadResumable(
+        directUrl,
+        tempPath,
+        directHeaders ? { headers: directHeaders } : {},
+        callback
+      );
+      activeDownloadSessions.set(jobId, downloadResumable);
+      result = await downloadResumable.downloadAsync();
     }
 
     if (!result || (result.status !== 200 && result.status !== 206)) {
@@ -213,6 +241,35 @@ async function executeDownloadStream(
     if (jobAfterError?.state === 'CANCELLED' || jobAfterError?.state === 'PAUSED') {
       return;
     }
+
+    // Attempt direct CDN fallback on network/socket error from proxy
+    if (jobAfterError?.media.directMediaUrl && mediaUrl.includes('/v1/stream/')) {
+      try {
+        const directUrl = jobAfterError.media.directMediaUrl;
+        const directHeaders = jobAfterError.media.httpHeaders;
+        const fallbackResumable = FileSystem.createDownloadResumable(
+          directUrl,
+          tempPath,
+          directHeaders ? { headers: directHeaders } : {},
+          (data) => {
+            updateJobInQueue(jobId, {
+              bytesDownloaded: data.totalBytesWritten,
+              totalBytes: data.totalBytesExpectedToWrite > 0 ? data.totalBytesExpectedToWrite : undefined,
+              statusMessage: 'Downloading...',
+            });
+          }
+        );
+        activeDownloadSessions.set(jobId, fallbackResumable);
+        const fallbackResult = await fallbackResumable.downloadAsync();
+        if (fallbackResult && (fallbackResult.status === 200 || fallbackResult.status === 206)) {
+          await finalizeSuccessfulDownload(jobId, tempPath, safeFilename);
+          return;
+        }
+      } catch {
+        // Fall through to error handler
+      }
+    }
+
     activeDownloadSessions.delete(jobId);
     updateJobInQueue(jobId, {
       state: 'FAILED',

@@ -59,7 +59,13 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
 
     # Step 3: Metadata Extraction with streaming proxy base URL
     try:
-        resolved = await extract_media_metadata(canon_url, base_url=str(request.base_url))
+        base_url = str(request.base_url)
+        hostname = request.url.hostname or ""
+        # Force HTTPS on public cloud containers to avoid mobile cleartext HTTP blocks
+        if base_url.startswith("http://") and not hostname.startswith("127.") and hostname != "localhost":
+            base_url = "https://" + base_url[len("http://"):]
+
+        resolved = await extract_media_metadata(canon_url, base_url=base_url)
         return resolved
     except ExtractionError as e:
         raise HTTPException(
