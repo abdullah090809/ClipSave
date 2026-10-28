@@ -353,3 +353,77 @@ export async function shareSavedMedia(fileUri: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Explicitly saves or exports a downloaded video to the device's public Gallery or Storage.
+ * Attempts MediaLibrary first; if scoped storage prevents it, opens native system save sheet.
+ */
+export async function saveOrExportToGallery(fileUri: string): Promise<boolean> {
+  try {
+    let targetUri = fileUri;
+    if (!targetUri.startsWith('file://') && !targetUri.startsWith('content://')) {
+      targetUri = `file://${targetUri}`;
+    }
+
+    let saved = false;
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (perm?.granted || perm?.status === 'granted') {
+        const asset = await MediaLibrary.createAssetAsync(targetUri);
+        if (asset) {
+          saved = true;
+        }
+      }
+    } catch {
+      try {
+        await MediaLibrary.saveToLibraryAsync(targetUri);
+        saved = true;
+      } catch {
+        saved = false;
+      }
+    }
+
+    if (saved) {
+      Alert.alert('Saved to Gallery', 'The video was successfully added to your device gallery.');
+      return true;
+    }
+
+    // Native fallback: Launches Android system save/share dialog so user can save directly to Photos, Drive, or Files
+    await Sharing.shareAsync(targetUri, {
+      dialogTitle: 'Save video to Gallery or Storage',
+      mimeType: 'video/mp4',
+    });
+    return true;
+  } catch (err: any) {
+    console.warn('saveOrExportToGallery failed:', err);
+    Alert.alert('Export Error', 'Could not export video to storage.');
+    return false;
+  }
+}
+
+/**
+ * Displays an informational dialog with the exact file storage path, filename, and options to save/open.
+ */
+export function showFileLocationInfo(fileUri: string, title: string = 'Downloaded Video') {
+  const filename = fileUri.split('/').pop() || 'video.mp4';
+  const cleanPath = fileUri.replace('file://', '');
+
+  Alert.alert(
+    'File Storage Location',
+    `Title: ${title}\n\nFile Name:\n${filename}\n\nStorage Path:\n${cleanPath}\n\nStatus: Stored in app local storage.\n\nYou can export this video directly to your Gallery or Files using "Save to Device".`,
+    [
+      {
+        text: 'Save to Device',
+        onPress: () => saveOrExportToGallery(fileUri),
+      },
+      {
+        text: 'Share',
+        onPress: () => shareSavedMedia(fileUri),
+      },
+      {
+        text: 'Close',
+        style: 'cancel',
+      },
+    ]
+  );
+}

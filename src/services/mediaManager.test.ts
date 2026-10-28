@@ -4,6 +4,8 @@ import {
   saveCompletedMedia,
   shareSavedMedia,
   playVideo,
+  saveOrExportToGallery,
+  showFileLocationInfo,
   DOWNLOADS_TEMP_DIR,
 } from './mediaManager';
 import {
@@ -225,6 +227,50 @@ describe('mediaManager', () => {
     expect(Alert.alert).toHaveBeenCalledWith(
       'File Not Found',
       expect.stringContaining('could not be found')
+    );
+  });
+
+  test('UT-MM-12: saveOrExportToGallery creates asset when permissions granted', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    (MediaLibrary.requestPermissionsAsync as jest.Mock).mockResolvedValueOnce({
+      status: 'granted',
+      granted: true,
+    });
+    (MediaLibrary.createAssetAsync as jest.Mock).mockResolvedValueOnce({
+      uri: 'file:///gallery/saved.mp4',
+    });
+
+    const success = await saveOrExportToGallery('file:///documents/video.mp4');
+    expect(success).toBe(true);
+    expect(MediaLibrary.createAssetAsync).toHaveBeenCalledWith('file:///documents/video.mp4');
+    expect(Alert.alert).toHaveBeenCalledWith('Saved to Gallery', expect.stringContaining('successfully'));
+  });
+
+  test('UT-MM-13: saveOrExportToGallery falls back to Sharing.shareAsync when media library throws', async () => {
+    (MediaLibrary.requestPermissionsAsync as jest.Mock).mockRejectedValueOnce(new Error('Permission denied'));
+    (MediaLibrary.saveToLibraryAsync as jest.Mock).mockRejectedValueOnce(new Error('Save failed'));
+
+    const success = await saveOrExportToGallery('file:///documents/video.mp4');
+    expect(success).toBe(true);
+    expect(Sharing.shareAsync).toHaveBeenCalledWith(
+      'file:///documents/video.mp4',
+      expect.objectContaining({ mimeType: 'video/mp4' })
+    );
+  });
+
+  test('UT-MM-14: showFileLocationInfo displays Alert with clean file path and actions', () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    showFileLocationInfo('file:///data/user/0/com.clipsave.app/files/video.mp4', 'Test Video');
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'File Storage Location',
+      expect.stringContaining('/data/user/0/com.clipsave.app/files/video.mp4'),
+      expect.arrayContaining([
+        expect.objectContaining({ text: 'Save to Device' }),
+        expect.objectContaining({ text: 'Share' }),
+        expect.objectContaining({ text: 'Close' }),
+      ])
     );
   });
 

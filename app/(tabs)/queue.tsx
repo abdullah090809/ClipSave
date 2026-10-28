@@ -21,7 +21,12 @@ import {
   removeDownloadJob,
   retryDownload,
 } from '../../src/services/downloadEngine';
-import { shareSavedMedia, playVideo } from '../../src/services/mediaManager';
+import {
+  shareSavedMedia,
+  playVideo,
+  saveOrExportToGallery,
+  showFileLocationInfo,
+} from '../../src/services/mediaManager';
 import { useQueueStructure, useJob } from '../../src/hooks/useQueue';
 import { jobProgressFraction } from '../../src/utils/jobDisplay';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
@@ -134,9 +139,15 @@ const QueueJobCard = memo(function QueueJobCard({
             {sizeText}
             {isDone && (
               <Text
+                onPress={
+                  job.finalFileUri
+                    ? () => showFileLocationInfo(job.finalFileUri!, job.media.title)
+                    : undefined
+                }
                 style={{
                   color: job.statusMessage === 'Saved to Gallery' ? colors.success : colors.warning,
                   fontWeight: '600',
+                  textDecorationLine: 'underline',
                 }}
               >
                 {` • ${job.statusMessage || 'Completed'}`}
@@ -422,6 +433,18 @@ export default function QueueScreen() {
                 label: 'Play Video',
                 icon: 'play-circle-outline' as const,
                 onPress: () => playVideo(selectedJob.finalFileUri!),
+              },
+              {
+                key: 'save-gallery',
+                label: 'Save to Gallery / Device',
+                icon: 'download-outline' as const,
+                onPress: () => saveOrExportToGallery(selectedJob.finalFileUri!),
+              },
+              {
+                key: 'location',
+                label: 'View File Location & Info',
+                icon: 'folder-open-outline' as const,
+                onPress: () => showFileLocationInfo(selectedJob.finalFileUri!, selectedJob.media.title),
               },
               {
                 key: 'share',

@@ -22,7 +22,12 @@ import {
   deleteHistoryEntryAndFile,
   clearHistoryAndFiles,
 } from '../../src/storage/historyStore';
-import { shareSavedMedia, playVideo } from '../../src/services/mediaManager';
+import {
+  shareSavedMedia,
+  playVideo,
+  saveOrExportToGallery,
+  showFileLocationInfo,
+} from '../../src/services/mediaManager';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
 import { TabHeader } from '../../src/components/TabHeader';
@@ -189,6 +194,18 @@ export default function HistoryScreen() {
           label: 'Play Video',
           icon: 'play-circle-outline',
           onPress: () => handleOpenVideo(selectedItem),
+        },
+        {
+          key: 'save-gallery',
+          label: 'Save to Gallery / Device',
+          icon: 'download-outline',
+          onPress: () => saveOrExportToGallery(selectedItem.fileUri),
+        },
+        {
+          key: 'location',
+          label: 'View File Location & Info',
+          icon: 'folder-open-outline',
+          onPress: () => showFileLocationInfo(selectedItem.fileUri, selectedItem.title),
         },
         {
           key: 'share',
