@@ -11,8 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Final minimal runtime image
 FROM python:3.13-slim AS runtime
 
-# Install ffmpeg/ca-certificates if needed for media inspection
+# Install ffmpeg, nodejs, and ca-certificates for DASH remuxing and JS signature extraction
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    nodejs \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*

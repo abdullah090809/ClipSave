@@ -1,10 +1,13 @@
+import asyncio
+import os
+import shutil
 import uuid
 from urllib.parse import urljoin
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from ..models import ResolveRequest, ResolvedMediaResponse, ErrorResponse
-from ..security.url_validation import validate_tiktok_url
+from ..security.url_validation import validate_media_url
 from ..security.ssrf import verify_url_ssrf_safety
 from ..security.rate_limit import rate_limit_dependency
 from ..security.logging import log_safe_info, log_safe_error
@@ -33,14 +36,15 @@ router = APIRouter(prefix="/v1", tags=["resolve"])
 )
 async def resolve_media_endpoint(body: ResolveRequest, request: Request):
     """
-    Resolve public TikTok video metadata and direct media stream URL.
+    Resolve public YouTube (Shorts & Videos) and TikTok metadata and direct media stream URLs.
+    Supports quality options (1080p, 720p, 360p) and audio only option (MP3).
     Defends against SSRF, rate limit abuse, and malformed inputs.
     """
     req_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     raw_url = body.url
 
-    # Step 1: Strict URL parsing & allowlist verification
-    is_valid, canon_url, err_msg = validate_tiktok_url(raw_url)
+    # Step 1: Strict URL parsing & allowlist verification (YouTube, TikTok, future platforms)
+    is_valid, canon_url, platform, err_msg = validate_media_url(raw_url)
     if not is_valid:
         log_safe_info(f"Rejected invalid URL: {err_msg}", raw_url)
         raise HTTPException(
@@ -88,8 +92,8 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
 async def stream_media_endpoint(stream_id: str, request: Request):
     """
     Proxies media stream with Range header support, SSRF redirect defense,
-    and authenticated session cookies. Bypasses mobile TLS fingerprint blocking
-    and CDN 403 hotlink errors.
+    authenticated session cookies, live ffmpeg DASH remuxing for YouTube,
+    and audio extraction. Bypasses mobile TLS fingerprint blocking and CDN 403 hotlink errors.
     """
     req_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     session = get_stream_session(stream_id)
@@ -100,9 +104,12 @@ async def stream_media_endpoint(stream_id: str, request: Request):
         )
 
     upstream_url = session["media_url"]
-    upstream_headers = session["headers"].copy()
+    audio_url = session.get("audio_url")
+    is_audio_only = session.get("is_audio_only", False)
+    ext = session.get("ext", "mp4")
+    upstream_headers = session.get("headers", {}).copy()
 
-    # Pre-flight SSRF check on upstream URL
+    # Pre-flight SSRF check on primary upstream URL
     is_safe, ssrf_err = verify_url_ssrf_safety(upstream_url)
     if not is_safe:
         log_safe_error("SSRF defense triggered on stream upstream URL", Exception(ssrf_err), upstream_url)
@@ -111,12 +118,66 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             detail={"code": "SSRF_RESTRICTED", "message": "Host is not permitted for streaming.", "requestId": req_id},
         )
 
-    # Forward client Range header for resumed downloads (HTTP 206)
+    # CASE 1: Composite DASH stream (YouTube separate video and audio streams requiring live remux)
+    if audio_url:
+        is_safe_audio, ssrf_err_audio = verify_url_ssrf_safety(audio_url)
+        if not is_safe_audio:
+            log_safe_error("SSRF defense triggered on stream audio URL", Exception(ssrf_err_audio), audio_url)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "SSRF_RESTRICTED", "message": "Audio stream host is not permitted.", "requestId": req_id},
+            )
+
+        ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
+        try:
+            cmd = [
+                ffmpeg_bin,
+                "-y",
+                "-i", upstream_url,
+                "-i", audio_url,
+                "-c", "copy",
+                "-movflags", "frag_keyframe+empty_moov",
+                "-f", "mp4",
+                "pipe:1",
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+
+            async def ffmpeg_stream_generator():
+                try:
+                    while True:
+                        chunk = await proc.stdout.read(65536)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    if proc.returncode is None:
+                        try:
+                            proc.kill()
+                        except (ProcessLookupError, OSError):
+                            pass
+                    await proc.wait()
+
+            return StreamingResponse(
+                ffmpeg_stream_generator(),
+                media_type="video/mp4",
+                headers={
+                    "Content-Type": "video/mp4",
+                    "Accept-Ranges": "none",
+                },
+            )
+        except Exception as ffmpeg_err:
+            log_safe_error("Live ffmpeg remux failed, falling back to direct video stream", ffmpeg_err, upstream_url)
+            # Gracefully proceed to direct stream fallback below
+
+    # CASE 2: Direct progressive video or direct audio stream proxy
     client_range = request.headers.get("range") or request.headers.get("Range")
     if client_range:
         upstream_headers["Range"] = client_range
 
-    # Disable automatic redirect following to inspect each hop against SSRF allowlist
     client = httpx.AsyncClient(timeout=60.0, follow_redirects=False)
     MAX_REDIRECTS = 5
     current_url = upstream_url
@@ -166,8 +227,14 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 await resp.aclose()
                 await client.aclose()
 
+        content_type = (
+            "audio/mpeg"
+            if is_audio_only
+            else resp.headers.get("content-type", "video/mp4" if ext == "mp4" else "audio/mpeg")
+        )
+
         response_headers = {
-            "Content-Type": resp.headers.get("content-type", "video/mp4"),
+            "Content-Type": content_type,
             "Accept-Ranges": "bytes",
         }
         if "content-length" in resp.headers:

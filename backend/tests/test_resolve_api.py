@@ -56,10 +56,48 @@ async def test_resolve_valid_mock_url():
         data = resp.json()
         assert data["id"] == "mock_test_123"
         assert data["sourceUrl"] == payload["url"]
+        assert data["platform"] == "tiktok"
         assert "mediaUrl" in data
         assert data["mediaUrl"].startswith("http")
         assert "title" in data
         assert "author" in data
+        assert "availableFormats" in data
+        assert len(data["availableFormats"]) >= 2
+        # Check audio option is present
+        assert any(f["quality"] == "audio" and f["extension"] == "mp3" for f in data["availableFormats"])
+
+
+@pytest.mark.asyncio
+async def test_resolve_valid_youtube_url():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = {"url": "https://www.youtube.com/watch?v=aqz-KE-bpKQ"}
+        resp = await client.post("/v1/resolve", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == "mock_yt_123"
+        assert data["sourceUrl"] == payload["url"]
+        assert data["platform"] == "youtube"
+        assert "availableFormats" in data
+        # Check that 1080p, 720p, 360p, and audio only are provided
+        quality_ids = [f["id"] for f in data["availableFormats"]]
+        assert "1080p" in quality_ids
+        assert "720p" in quality_ids
+        assert "360p" in quality_ids
+        assert "audio" in quality_ids
+
+
+@pytest.mark.asyncio
+async def test_resolve_valid_youtube_shorts_url():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = {"url": "https://www.youtube.com/shorts/dQw4w9WgXcQ"}
+        resp = await client.post("/v1/resolve", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["platform"] == "youtube"
+        assert len(data["availableFormats"]) > 0
+
 
 
 @pytest.mark.asyncio
