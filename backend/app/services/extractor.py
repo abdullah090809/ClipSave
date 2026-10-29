@@ -1,3 +1,4 @@
+import os
 import asyncio
 import concurrent.futures
 import secrets
@@ -88,11 +89,22 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
             "youtube",
             "Youtube",
             "YoutubeShorts",
+            "Instagram",
+            "InstagramIOS",
+            "instagram:story",
+            "instagram:tag",
+            "instagram:user",
             "generic",
         ],
         "socket_timeout": 15,
         "js_runtimes": {"node": {}},
     }
+
+    cookies_path = getattr(settings, "COOKIES_FILE", None)
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+    elif os.path.exists("cookies.txt"):
+        ydl_opts["cookiefile"] = "cookies.txt"
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -108,7 +120,8 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     and multiple format options (1080p, 720p, 360p, audio only).
     """
     is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
-    platform = "youtube" if is_youtube else "tiktok"
+    is_instagram = "instagram.com" in url.lower() or "instagr.am" in url.lower() or "ddinstagram.com" in url.lower()
+    platform = "youtube" if is_youtube else ("instagram" if is_instagram else "tiktok")
 
     if settings.ENABLE_MOCK_EXTRACTOR:
         log_safe_info("Using mock extractor response", url)
@@ -166,6 +179,49 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 author="YouTubeCreator",
                 authorUsername="@youtubecreator",
                 durationSeconds=180.0,
+                thumbnailUrl="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400",
+                mediaUrl=formats[0].mediaUrl,
+                directMediaUrl="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                estimatedSizeBytes=formats[0].estimatedSizeBytes,
+                format="mp4",
+                quality="1080p",
+                availableFormats=formats,
+                expiresAt=None,
+                isCleanSourceVerified=True,
+            )
+
+        if is_instagram:
+            # Instagram Mock Metadata
+            formats = [
+                MediaFormatOption(
+                    id="1080p",
+                    label="Instagram HD Video",
+                    quality="1080p",
+                    extension="mp4",
+                    isVideo=True,
+                    mediaUrl=f"{host_prefix}/v1/stream/mock_ig_1080p",
+                    estimatedSizeBytes=14500000,
+                    note="HD Reel",
+                ),
+                MediaFormatOption(
+                    id="audio",
+                    label="Audio Only (MP3)",
+                    quality="audio",
+                    extension="mp3",
+                    isVideo=False,
+                    mediaUrl=f"{host_prefix}/v1/stream/mock_ig_audio",
+                    estimatedSizeBytes=1800000,
+                    note="Audio Track",
+                ),
+            ]
+            return ResolvedMediaResponse(
+                id="mock_ig_123",
+                sourceUrl=url,
+                platform="instagram",
+                title="Sample Instagram Reel (Development Fixture)",
+                author="InstagramCreator",
+                authorUsername="@instagramcreator",
+                durationSeconds=28.0,
                 thumbnailUrl="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400",
                 mediaUrl=formats[0].mediaUrl,
                 directMediaUrl="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
@@ -238,10 +294,10 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         except yt_dlp.utils.DownloadError as e:
             err_msg = str(e).lower()
             log_safe_error("yt-dlp DownloadError", e, url)
-            if "private" in err_msg or "login" in err_msg:
+            if "private" in err_msg or "login" in err_msg or "empty media response" in err_msg or "not granting access" in err_msg:
                 raise ExtractionError(
                     code="MEDIA_PRIVATE",
-                    message="This video is private or restricted. ClipSave cannot access private accounts.",
+                    message="This video is private, restricted, or requires an account login. ClipSave only accesses publicly accessible videos.",
                     status_code=403,
                 )
             if "not found" in err_msg or "404" in err_msg or "deleted" in err_msg:
@@ -285,6 +341,8 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     extractor_key = str(info.get("extractor_key") or "").lower()
     if "youtube" in extractor_key or "youtube.com" in url.lower() or "youtu.be" in url.lower():
         detected_platform = "youtube"
+    elif "instagram" in extractor_key or "instagram.com" in url.lower() or "instagr.am" in url.lower() or "ddinstagram.com" in url.lower():
+        detected_platform = "instagram"
     elif "tiktok" in extractor_key or "tiktok.com" in url.lower():
         detected_platform = "tiktok"
     else:
@@ -451,16 +509,18 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             ext="mp4",
         )
         client_video_url = f"{base_url.rstrip('/')}/v1/stream/{stream_id_video}" if base_url else media_url
+        video_label = "Instagram HD Video" if detected_platform == "instagram" else "1080p HD (No Watermark)"
+        video_note = "HD Reel / Video" if detected_platform == "instagram" else "Watermark Free"
         available_format_options.append(
             MediaFormatOption(
                 id="1080p",
-                label="1080p HD (No Watermark)",
+                label=video_label,
                 quality="1080p",
                 extension="mp4",
                 isVideo=True,
                 mediaUrl=client_video_url,
                 estimatedSizeBytes=filesize,
-                note="Watermark Free",
+                note=video_note,
             )
         )
 

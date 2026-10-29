@@ -54,6 +54,7 @@ export interface DownloadJob {
   state: DownloadState;
   bytesDownloaded: number;
   totalBytes?: number | undefined;
+  speedBytesPerSecond?: number | undefined;
   statusMessage: string;
   errorMessage?: string | undefined;
   isRetryable?: boolean | undefined;

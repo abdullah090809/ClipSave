@@ -99,13 +99,29 @@ def test_reject_youtube_root():
     assert "missing a specific YouTube video reference" in err
 
 
-def test_future_platforms_friendly_error():
-    ig_url = "https://www.instagram.com/reel/12345/"
-    is_valid, _, platform, err = validate_media_url(ig_url)
-    assert is_valid is False
-    assert platform == "instagram"
-    assert "Instagram support is coming" in err
+def test_validate_instagram_urls():
+    ig_urls = [
+        ("https://www.instagram.com/reel/C8q8q0_PzZg/", "instagram"),
+        ("https://instagram.com/reels/C8q8q0_PzZg/", "instagram"),
+        ("https://www.instagram.com/p/C8q8q0_PzZg/", "instagram"),
+        ("https://instagr.am/reel/C8q8q0_PzZg/", "instagram"),
+        ("https://m.instagram.com/reel/C8q8q0_PzZg/", "instagram"),
+    ]
+    for url, expected_platform in ig_urls:
+        is_valid, canon, platform, err = validate_media_url(url)
+        assert is_valid is True, f"Failed for {url}: {err}"
+        assert platform == expected_platform
+        assert canon == url
 
+
+def test_reject_instagram_root():
+    url = "https://www.instagram.com/"
+    is_valid, _, platform, err = validate_media_url(url)
+    assert is_valid is False
+    assert "missing a reel or post reference" in err
+
+
+def test_future_platforms_friendly_error():
     fb_url = "https://www.facebook.com/watch/?v=123"
     is_valid, _, platform, err = validate_media_url(fb_url)
     assert is_valid is False

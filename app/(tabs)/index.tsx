@@ -74,6 +74,10 @@ export default function HomeScreen() {
               ? check.isShort
                 ? 'YouTube Short'
                 : 'YouTube Video'
+              : check.platform === 'instagram'
+              ? check.isShort
+                ? 'Instagram Reel'
+                : 'Instagram Video'
               : 'TikTok Video'
           );
         } else {
@@ -331,22 +335,22 @@ export default function HomeScreen() {
                 { color: colors.textSecondary, textAlign: 'center', marginTop: 4 },
               ]}
             >
-              Save YouTube & TikTok videos with sound
+              Save YouTube, TikTok & Instagram videos
             </Text>
 
             {/* Supported Platform Badges */}
             <View style={styles.supportedPlatformsRow}>
               <View style={[styles.platformBadge, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}>
                 <Ionicons name="logo-youtube" size={13} color="#EF4444" />
-                <Text style={[typography.micro, { color: '#EF4444', marginLeft: 4 }]}>YouTube</Text>
+                <Text style={[typography.micro, { color: '#EF4444', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>YouTube</Text>
               </View>
               <View style={[styles.platformBadge, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
                 <Ionicons name="musical-notes" size={13} color="#06B6D4" />
-                <Text style={[typography.micro, { color: '#06B6D4', marginLeft: 4 }]}>TikTok</Text>
+                <Text style={[typography.micro, { color: '#06B6D4', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>TikTok</Text>
               </View>
-              <View style={[styles.platformBadge, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant, opacity: 0.7 }]}>
-                <Ionicons name="logo-instagram" size={13} color={colors.textMuted} />
-                <Text style={[typography.micro, { color: colors.textMuted, marginLeft: 4 }]}>IG (Soon)</Text>
+              <View style={[styles.platformBadge, { backgroundColor: 'rgba(225, 48, 108, 0.12)', borderColor: '#E1306C' }]}>
+                <Ionicons name="logo-instagram" size={13} color="#E1306C" />
+                <Text style={[typography.micro, { color: '#E1306C', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>Instagram</Text>
               </View>
               <View style={[styles.platformBadge, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant, opacity: 0.7 }]}>
                 <Ionicons name="logo-facebook" size={13} color={colors.textMuted} />
@@ -376,7 +380,13 @@ export default function HomeScreen() {
               accessibilityLabel={`Paste detected ${clipboardPlatform} link`}
             >
               <Ionicons
-                name={clipboardPlatform.includes('YouTube') ? 'logo-youtube' : 'musical-notes'}
+                name={
+                  clipboardPlatform.includes('YouTube')
+                    ? 'logo-youtube'
+                    : clipboardPlatform.includes('Instagram')
+                    ? 'logo-instagram'
+                    : 'musical-notes'
+                }
                 size={16}
                 color={colors.primary}
               />
@@ -410,10 +420,10 @@ export default function HomeScreen() {
                 </View>
               )}
               {liveDetection.platform === 'instagram' && (
-                <View style={[styles.detectedPill, { backgroundColor: 'rgba(168, 85, 247, 0.15)', borderColor: '#A855F7' }]}>
-                  <Ionicons name="logo-instagram" size={14} color="#A855F7" />
-                  <Text style={[typography.micro, { color: '#A855F7', fontWeight: '700', marginLeft: 4 }]}>
-                    Instagram (Coming Soon)
+                <View style={[styles.detectedPill, { backgroundColor: 'rgba(225, 48, 108, 0.15)', borderColor: '#E1306C' }]}>
+                  <Ionicons name="logo-instagram" size={14} color="#E1306C" />
+                  <Text style={[typography.micro, { color: '#E1306C', fontWeight: '700', marginLeft: 4 }]}>
+                    {liveDetection.isShort ? 'Instagram Reel' : 'Instagram Video'}
                   </Text>
                 </View>
               )}
@@ -450,7 +460,7 @@ export default function HomeScreen() {
                 typography.body,
                 { color: colors.textPrimary },
               ]}
-              placeholder="Paste YouTube or TikTok link..."
+              placeholder="Paste YouTube, TikTok, or Instagram link..."
               placeholderTextColor={colors.textMuted}
               value={inputUrl}
               onChangeText={(text) => {
@@ -541,28 +551,55 @@ export default function HomeScreen() {
                       backgroundColor:
                         resolvedMedia.platform === 'youtube'
                           ? 'rgba(239, 68, 68, 0.12)'
+                          : resolvedMedia.platform === 'instagram'
+                          ? 'rgba(225, 48, 108, 0.12)'
                           : 'rgba(6, 182, 212, 0.12)',
                       borderColor:
-                        resolvedMedia.platform === 'youtube' ? '#EF4444' : '#06B6D4',
+                        resolvedMedia.platform === 'youtube'
+                          ? '#EF4444'
+                          : resolvedMedia.platform === 'instagram'
+                          ? '#E1306C'
+                          : '#06B6D4',
                     },
                   ]}
                 >
                   <Ionicons
-                    name={resolvedMedia.platform === 'youtube' ? 'logo-youtube' : 'musical-notes'}
+                    name={
+                      resolvedMedia.platform === 'youtube'
+                        ? 'logo-youtube'
+                        : resolvedMedia.platform === 'instagram'
+                        ? 'logo-instagram'
+                        : 'musical-notes'
+                    }
                     size={12}
-                    color={resolvedMedia.platform === 'youtube' ? '#EF4444' : '#06B6D4'}
+                    color={
+                      resolvedMedia.platform === 'youtube'
+                        ? '#EF4444'
+                        : resolvedMedia.platform === 'instagram'
+                        ? '#E1306C'
+                        : '#06B6D4'
+                    }
                   />
                   <Text
                     style={[
                       typography.micro,
                       {
-                        color: resolvedMedia.platform === 'youtube' ? '#EF4444' : '#06B6D4',
+                        color:
+                          resolvedMedia.platform === 'youtube'
+                            ? '#EF4444'
+                            : resolvedMedia.platform === 'instagram'
+                            ? '#E1306C'
+                            : '#06B6D4',
                         marginLeft: 4,
                         fontWeight: '700',
                       },
                     ]}
                   >
-                    {resolvedMedia.platform === 'youtube' ? 'YouTube' : 'TikTok'}
+                    {resolvedMedia.platform === 'youtube'
+                      ? 'YouTube'
+                      : resolvedMedia.platform === 'instagram'
+                      ? 'Instagram'
+                      : 'TikTok'}
                   </Text>
                 </View>
 
@@ -845,10 +882,11 @@ const styles = StyleSheet.create({
   platformBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
     borderRadius: borderRadius.full,
     borderWidth: 1,
+    flexShrink: 0,
   },
   detectedPillRow: {
     flexDirection: 'row',

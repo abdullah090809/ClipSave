@@ -22,6 +22,9 @@ ALLOWED_YOUTUBE_HOSTS = {
 ALLOWED_INSTAGRAM_HOSTS = {
     "instagram.com",
     "www.instagram.com",
+    "m.instagram.com",
+    "instagr.am",
+    "ddinstagram.com",
 }
 
 ALLOWED_FACEBOOK_HOSTS = {
@@ -73,13 +76,20 @@ def validate_media_url(raw_url: str) -> Tuple[bool, str, str, str]:
     if not hostname:
         return False, "", "", "Missing hostname in URL."
 
-    # Instagram check (future)
+    # Instagram check
     if hostname in ALLOWED_INSTAGRAM_HOSTS:
-        return False, "", "instagram", "Instagram support is coming in an upcoming update! Currently YouTube and TikTok are supported."
+        path = parsed.path or ""
+        is_reel = path.startswith("/reel/") or path.startswith("/reels/")
+        is_post = path.startswith("/p/")
+        is_tv = path.startswith("/tv/")
+        is_share = path.startswith("/share/")
+        if not is_reel and not is_post and not is_tv and not is_share and len(path) <= 1:
+            return False, "", "instagram", "Instagram link is missing a reel or post reference."
+        return True, url, "instagram", ""
 
     # Facebook check (future)
     if hostname in ALLOWED_FACEBOOK_HOSTS:
-        return False, "", "facebook", "Facebook support is coming in an upcoming update! Currently YouTube and TikTok are supported."
+        return False, "", "facebook", "Facebook support is coming in an upcoming update! Currently YouTube, TikTok, and Instagram are supported."
 
     # YouTube check
     if hostname in ALLOWED_YOUTUBE_HOSTS:
@@ -105,7 +115,7 @@ def validate_media_url(raw_url: str) -> Tuple[bool, str, str, str]:
             return False, "", "tiktok", "URL path is missing a specific video reference."
         return True, url, "tiktok", ""
 
-    return False, "", "unknown", f"Hostname '{hostname}' is not an authorized domain. Only YouTube and TikTok links are supported."
+    return False, "", "unknown", f"Hostname '{hostname}' is not an authorized domain. Only YouTube, TikTok, and Instagram links are supported."
 
 
 def validate_tiktok_url(raw_url: str) -> Tuple[bool, str, str]:

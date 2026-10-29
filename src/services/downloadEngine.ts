@@ -9,6 +9,7 @@ import {
 import { addHistoryItem } from '../storage/historyStore';
 import { getSettings } from '../storage/settingsStore';
 import { sanitizeFilename } from '../utils/filenameSanitizer';
+import { createSpeedTracker } from '../utils/speedTracker';
 import {
   ensureTempDirectory,
   saveCompletedMedia,
@@ -105,6 +106,7 @@ async function finalizeSuccessfulDownload(
   updateJobInQueue(jobId, {
     state: 'FINALIZING',
     statusMessage: 'Saving media to gallery...',
+    speedBytesPerSecond: 0,
   });
 
   const saveResult = await saveCompletedMedia(tempPath, safeFilename, true);
@@ -145,6 +147,7 @@ async function finalizeSuccessfulDownload(
     state: 'COMPLETED',
     statusMessage: saveResult.savedToGallery ? 'Saved to Gallery' : 'Saved to App Storage',
     finalFileUri: saveResult.finalUri,
+    speedBytesPerSecond: 0,
   });
 
   processNextQueuedJob().catch(() => {});
@@ -160,8 +163,10 @@ async function executeDownloadStream(
     updateJobInQueue(jobId, {
       state: 'DOWNLOADING',
       statusMessage: 'Streaming video bytes...',
+      speedBytesPerSecond: 0,
     });
 
+    const speedTracker = createSpeedTracker(0.25);
     let lastProgressTime = 0;
     const callback = (data: FileSystem.DownloadProgressData) => {
       const now = Date.now();
@@ -175,6 +180,7 @@ async function executeDownloadStream(
       lastProgressTime = now;
 
       const bytesDownloaded = data.totalBytesWritten;
+      const speed = speedTracker.update(bytesDownloaded, now);
       const totalBytes =
         data.totalBytesExpectedToWrite > 0
           ? data.totalBytesExpectedToWrite
@@ -183,6 +189,7 @@ async function executeDownloadStream(
       updateJobInQueue(jobId, {
         bytesDownloaded,
         totalBytes,
+        speedBytesPerSecond: speed,
         statusMessage: totalBytes
           ? `Downloading...`
           : `Downloading (stream)...`,
@@ -191,21 +198,26 @@ async function executeDownloadStream(
 
     const currentJob = getQueue().find((j) => j.id === jobId);
 
-    // Ensure secure HTTPS URL on Android
+    // Ensure secure HTTPS URL on Android for remote production domains (preserve HTTP for local IPs)
     let targetUrl = mediaUrl;
-    if (targetUrl.startsWith('http://') && !targetUrl.includes('127.0.0.1') && !targetUrl.includes('localhost')) {
+    const isLocalNetwork = /^(https?:\/\/)?(127\.0\.0\.1|localhost|10\.\d+|192\.168\.\d+|172\.(1[6-9]|2\d|3[0-1]))(:[0-9]+)?/i.test(targetUrl);
+    if (targetUrl.startsWith('http://') && !isLocalNetwork) {
       targetUrl = targetUrl.replace(/^http:\/\//i, 'https://');
     }
 
     // Proxy endpoints (/v1/stream) already have upstream headers stored on the server.
     // Direct CDN URLs need the extracted TikTok cookies & headers.
+    // Also include ngrok bypass header so ngrok tunnels stream seamlessly.
     const isProxyUrl = targetUrl.includes('/v1/stream/');
-    const headers = isProxyUrl ? undefined : currentJob?.media.httpHeaders;
+    const headers: Record<string, string> = {
+      ...(isProxyUrl ? {} : (currentJob?.media.httpHeaders || {})),
+      'ngrok-skip-browser-warning': 'true',
+    };
 
     let downloadResumable = FileSystem.createDownloadResumable(
       targetUrl,
       tempPath,
-      headers ? { headers } : {},
+      { headers },
       callback
     );
 

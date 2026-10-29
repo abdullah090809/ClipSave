@@ -65,8 +65,15 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
     try:
         base_url = str(request.base_url)
         hostname = request.url.hostname or ""
-        # Force HTTPS on public cloud containers to avoid mobile cleartext HTTP blocks
-        if base_url.startswith("http://") and not hostname.startswith("127.") and hostname != "localhost":
+        is_local_ip = (
+            hostname == "localhost"
+            or hostname.startswith("127.")
+            or hostname.startswith("192.168.")
+            or hostname.startswith("10.")
+            or hostname.startswith("172.")
+        )
+        # Force HTTPS only on public cloud containers (e.g. SnapDeploy, ngrok, domains), keep HTTP for local LAN
+        if base_url.startswith("http://") and not is_local_ip:
             base_url = "https://" + base_url[len("http://"):]
 
         resolved = await extract_media_metadata(canon_url, base_url=base_url)
@@ -149,7 +156,7 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             async def ffmpeg_stream_generator():
                 try:
                     while True:
-                        chunk = await proc.stdout.read(65536)
+                        chunk = await proc.stdout.read(262144)
                         if not chunk:
                             break
                         yield chunk
@@ -221,7 +228,7 @@ async def stream_media_endpoint(stream_id: str, request: Request):
 
         async def chunk_generator():
             try:
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                async for chunk in resp.aiter_bytes(chunk_size=262144):
                     yield chunk
             finally:
                 await resp.aclose()

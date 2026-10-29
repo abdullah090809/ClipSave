@@ -372,7 +372,7 @@ export default function HistoryScreen() {
                 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel={`Saved video: ${item.title || 'TikTok video'}`}
+              accessibilityLabel={`Saved video: ${item.title || (item.platform === 'youtube' ? 'YouTube video' : item.platform === 'instagram' ? 'Instagram video' : 'TikTok video')}`}
             >
               {/* Thumbnail with duration badge and play icon overlay */}
               <View style={styles.thumbnailWrapper}>

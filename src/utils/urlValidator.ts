@@ -32,6 +32,9 @@ export const ALLOWED_YOUTUBE_HOSTS = new Set([
 export const ALLOWED_INSTAGRAM_HOSTS = new Set([
   'instagram.com',
   'www.instagram.com',
+  'm.instagram.com',
+  'instagr.am',
+  'ddinstagram.com',
 ]);
 
 export const ALLOWED_FACEBOOK_HOSTS = new Set([
@@ -74,9 +77,14 @@ export function detectPlatform(rawInput: string): { platform: SupportedPlatform;
     return { platform: 'tiktok' };
   }
 
-  // Instagram detection (coming soon)
-  if (lower.includes('instagram.com')) {
-    return { platform: 'instagram' };
+  // Instagram detection
+  if (
+    lower.includes('instagram.com') ||
+    lower.includes('instagr.am') ||
+    lower.includes('ddinstagram.com')
+  ) {
+    const isShort = lower.includes('/reel/') || lower.includes('/reels/');
+    return { platform: 'instagram', isShort };
   }
 
   // Facebook detection (coming soon)
@@ -152,10 +160,30 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
 
     // Check Instagram
     if (ALLOWED_INSTAGRAM_HOSTS.has(hostname)) {
+      const pathname = parsed.pathname;
+      const isReel = pathname.startsWith('/reel/') || pathname.startsWith('/reels/');
+      const isPost = pathname.startsWith('/p/');
+      const isTv = pathname.startsWith('/tv/');
+      const isShare = pathname.startsWith('/share/');
+
+      if (!isReel && !isPost && !isTv && !isShare && pathname.length <= 1) {
+        return {
+          isValid: false,
+          platform: 'instagram',
+          errorMessage: 'Please provide a link to a specific Instagram Reel or Post (e.g. instagram.com/reel/...).',
+        };
+      }
+
+      // Strip tracking query parameters like igsh, utm_source, etc.
+      const trackingParams = ['igsh', 'utm_source', 'utm_medium', 'utm_campaign', 'fbclid', 'gclid'];
+      trackingParams.forEach((p) => parsed.searchParams.delete(p));
+
       return {
-        isValid: false,
+        isValid: true,
+        normalizedUrl: parsed.toString(),
+        extractedUrlsCount: 1,
         platform: 'instagram',
-        errorMessage: 'Instagram support is coming in the next update! Currently YouTube and TikTok are supported.',
+        isShort: isReel,
       };
     }
 
@@ -164,7 +192,7 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
       return {
         isValid: false,
         platform: 'facebook',
-        errorMessage: 'Facebook support is coming in an upcoming update! Currently YouTube and TikTok are supported.',
+        errorMessage: 'Facebook support is coming in an upcoming update! Currently YouTube, TikTok, and Instagram are supported.',
       };
     }
 
@@ -220,7 +248,7 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
 
     return {
       isValid: false,
-      errorMessage: 'Unsupported domain. Please provide a valid YouTube (Shorts/Videos) or TikTok link.',
+      errorMessage: 'Unsupported domain. Please provide a valid YouTube, TikTok, or Instagram link.',
     };
   } catch {
     return { isValid: false, errorMessage: 'The link is malformed or invalid.' };

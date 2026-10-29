@@ -29,7 +29,7 @@ import {
 } from '../../src/services/mediaManager';
 import { useQueueStructure, useJob } from '../../src/hooks/useQueue';
 import { jobProgressFraction } from '../../src/utils/jobDisplay';
-import { formatBytes, formatDuration } from '../../src/utils/formatters';
+import { formatBytes, formatDuration, formatSpeed } from '../../src/utils/formatters';
 import { DownloadJob } from '../../src/types';
 import { BottomSheetMenu, SheetAction } from '../../src/components/BottomSheetMenu';
 import { TabHeader } from '../../src/components/TabHeader';
@@ -59,9 +59,13 @@ const QueueJobCard = memo(function QueueJobCard({
   const percent = Math.min(100, Math.max(0, Math.round((knownFraction ?? 0) * 100)));
   const totalBytes = job.totalBytes ?? job.media.estimatedSizeBytes;
   const qualityDisplay = job.media.quality === 'audio' ? 'Audio (MP3)' : (job.media.quality ? `${job.media.quality}` : '1080p');
+  const speedText =
+    isActive && job.speedBytesPerSecond && job.speedBytesPerSecond > 0
+      ? ` • ${formatSpeed(job.speedBytesPerSecond)}`
+      : '';
   const sizeText = totalBytes
-    ? `${formatBytes(job.bytesDownloaded || totalBytes)} • ${qualityDisplay}`
-    : `${formatBytes(job.bytesDownloaded || 0)} • ${qualityDisplay}`;
+    ? `${formatBytes(job.bytesDownloaded || totalBytes)} • ${qualityDisplay}${speedText}`
+    : `${formatBytes(job.bytesDownloaded || 0)} • ${qualityDisplay}${speedText}`;
 
   const handlePrimaryPill = () => {
     if (isPaused) {
@@ -128,7 +132,7 @@ const QueueJobCard = memo(function QueueJobCard({
             style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}
             numberOfLines={2}
           >
-            {job.media.title || 'TikTok Video'}
+            {job.media.title || (job.media.platform === 'youtube' ? 'YouTube Video' : job.media.platform === 'instagram' ? 'Instagram Video' : 'TikTok Video')}
           </Text>
           <Text
             style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}
@@ -198,9 +202,19 @@ const QueueJobCard = memo(function QueueJobCard({
               ]}
             />
           </View>
-          <Text style={[typography.numeric, styles.percentText, { color: colors.textSecondary }]}>
-            {isDone ? '100%' : `${percent}%`}
-          </Text>
+          <View style={styles.progressMeta}>
+            {isActive && job.speedBytesPerSecond && job.speedBytesPerSecond > 0 ? (
+              <View style={styles.speedBadge}>
+                <Ionicons name="speedometer-outline" size={12} color={colors.primary} />
+                <Text style={[typography.micro, { color: colors.primary, fontWeight: '700', marginLeft: 3 }]}>
+                  {formatSpeed(job.speedBytesPerSecond)}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={[typography.numeric, styles.percentText, { color: colors.textSecondary }]}>
+              {isDone ? '100%' : `${percent}%`}
+            </Text>
+          </View>
         </View>
       )}
 
@@ -605,7 +619,7 @@ export default function QueueScreen() {
             <Text
               style={[
                 typography.titleLarge,
-                { color: colors.textPrimary, fontWeight: '700', marginTop: spacing.md },
+                { color: colors.textPrimary, fontWeight: '700', marginTop: spacing.md, textAlign: 'center' },
               ]}
             >
               {jobs.length === 0 ? 'Your queue is empty' : `No ${activeFilter} downloads`}
@@ -618,7 +632,7 @@ export default function QueueScreen() {
             >
               {jobs.length === 0
                 ? 'Videos you start downloading will appear here with live progress.'
-                : 'Select another filter above to view your downloads.'}
+                : 'Select another filter above or tap below to view your downloads.'}
             </Text>
 
             {jobs.length === 0 && (
@@ -632,6 +646,21 @@ export default function QueueScreen() {
                 <Ionicons name="add" size={18} color={colors.onPrimary} />
                 <Text style={[typography.labelMedium, { color: colors.onPrimary, fontWeight: '700' }]}>
                   Download a Video
+                </Text>
+              </Pressable>
+            )}
+
+            {jobs.length > 0 && filteredJobs.length === 0 && (
+              <Pressable
+                onPress={() => setActiveFilter('all')}
+                android_ripple={{ color: colors.ripplePrimary }}
+                style={[styles.emptyActionButton, { backgroundColor: colors.primary }]}
+                accessibilityRole="button"
+                accessibilityLabel="View all downloads"
+              >
+                <Ionicons name="list-outline" size={18} color={colors.onPrimary} />
+                <Text style={[typography.labelMedium, { color: colors.onPrimary, fontWeight: '700', marginLeft: 4 }]}>
+                  View All Downloads ({jobs.length})
                 </Text>
               </Pressable>
             )}
@@ -796,6 +825,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     minWidth: 36,
     textAlign: 'right',
+  },
+  progressMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  speedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
   },
   pillsRow: {
     flexDirection: 'row',

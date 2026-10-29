@@ -166,12 +166,23 @@ describe('validateMediaUrl', () => {
     expect(result.platform).toBe('tiktok');
   });
 
-  test('friendly message for Instagram links (upcoming)', () => {
-    const input = 'https://www.instagram.com/reel/C1234567/';
-    const result = validateMediaUrl(input);
-    expect(result.isValid).toBe(false);
-    expect(result.platform).toBe('instagram');
-    expect(result.errorMessage).toContain('Instagram support is coming');
+  test('validates Instagram Reel and post links', () => {
+    const reel = 'https://www.instagram.com/reel/C8q8q0_PzZg/?igsh=c3ZsdjM5';
+    const resReel = validateMediaUrl(reel);
+    expect(resReel.isValid).toBe(true);
+    expect(resReel.platform).toBe('instagram');
+    expect(resReel.isShort).toBe(true);
+    expect(resReel.normalizedUrl).not.toContain('igsh=');
+
+    const post = 'https://instagram.com/p/C8q8q0_PzZg/';
+    const resPost = validateMediaUrl(post);
+    expect(resPost.isValid).toBe(true);
+    expect(resPost.platform).toBe('instagram');
+
+    const root = 'https://www.instagram.com/';
+    const resRoot = validateMediaUrl(root);
+    expect(resRoot.isValid).toBe(false);
+    expect(resRoot.errorMessage).toContain('Please provide a link to a specific Instagram');
   });
 
   test('friendly message for Facebook links (upcoming)', () => {

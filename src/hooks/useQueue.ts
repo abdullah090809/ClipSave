@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { LayoutAnimation } from 'react-native';
-import { subscribeQueue } from '../storage/queueStore';
+import { subscribeQueue, getQueue } from '../storage/queueStore';
 import { DownloadJob } from '../types';
 import { jobStructureKey } from '../utils/jobDisplay';
 import { isReduceMotion } from '../theme/motion';
@@ -11,7 +11,7 @@ import { isReduceMotion } from '../theme/motion';
  * the consumer; active rows read live data through useJob instead.
  */
 export function useQueueStructure(): DownloadJob[] {
-  const [jobs, setJobs] = useState<DownloadJob[]>([]);
+  const [jobs, setJobs] = useState<DownloadJob[]>(() => getQueue());
   const keyRef = useRef<string | null>(null);
 
   useEffect(() => {
