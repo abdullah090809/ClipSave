@@ -58,9 +58,10 @@ const QueueJobCard = memo(function QueueJobCard({
   const knownFraction = jobProgressFraction(job);
   const percent = Math.min(100, Math.max(0, Math.round((knownFraction ?? 0) * 100)));
   const totalBytes = job.totalBytes ?? job.media.estimatedSizeBytes;
+  const qualityDisplay = job.media.quality === 'audio' ? 'Audio (MP3)' : (job.media.quality ? `${job.media.quality}` : '1080p');
   const sizeText = totalBytes
-    ? `${formatBytes(job.bytesDownloaded || totalBytes)} • 1080p`
-    : `${formatBytes(job.bytesDownloaded || 0)} • 1080p`;
+    ? `${formatBytes(job.bytesDownloaded || totalBytes)} • ${qualityDisplay}`
+    : `${formatBytes(job.bytesDownloaded || 0)} • ${qualityDisplay}`;
 
   const handlePrimaryPill = () => {
     if (isPaused) {

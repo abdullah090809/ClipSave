@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,8 +11,9 @@ import {
   Pressable,
   Image,
   ActivityIndicator,
+  AppState,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,26 +52,62 @@ export default function HomeScreen() {
   // Real-time platform detection as user types or pastes
   const liveDetection = detectPlatform(inputUrl);
 
-  // Check clipboard when component mounts or becomes active (without continuous polling)
-  useEffect(() => {
-    let isMounted = true;
-    Clipboard.hasStringAsync()
-      .then(async (has) => {
-        if (!has || !isMounted) return;
-        const text = await Clipboard.getStringAsync();
-        if (text && text.trim() && isMounted) {
-          const check = validateMediaUrl(text.trim());
-          if (check.isValid && check.normalizedUrl && check.normalizedUrl !== inputUrl) {
-            setClipboardDetectedUrl(check.normalizedUrl);
-            setClipboardPlatform(check.platform === 'youtube' ? (check.isShort ? 'YouTube Short' : 'YouTube') : 'TikTok');
-          }
+  // Check clipboard helper
+  const checkClipboard = useCallback(async () => {
+    try {
+      const has = await Clipboard.hasStringAsync();
+      if (!has) {
+        setClipboardDetectedUrl(null);
+        return;
+      }
+      const text = await Clipboard.getStringAsync();
+      if (!text || !text.trim()) {
+        setClipboardDetectedUrl(null);
+        return;
+      }
+      const check = validateMediaUrl(text.trim());
+      if (check.isValid && check.normalizedUrl) {
+        if (check.normalizedUrl !== inputUrl.trim()) {
+          setClipboardDetectedUrl(check.normalizedUrl);
+          setClipboardPlatform(
+            check.platform === 'youtube'
+              ? check.isShort
+                ? 'YouTube Short'
+                : 'YouTube Video'
+              : 'TikTok Video'
+          );
+        } else {
+          setClipboardDetectedUrl(null);
         }
-      })
-      .catch(() => {});
-    return () => {
-      isMounted = false;
-    };
+      } else {
+        setClipboardDetectedUrl(null);
+      }
+    } catch {
+      // Ignore clipboard error
+    }
   }, [inputUrl]);
+
+  // Check clipboard on mount and whenever app resumes to foreground from another app
+  useEffect(() => {
+    checkClipboard();
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        checkClipboard();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [checkClipboard]);
+
+  // Check clipboard whenever Home screen tab gains focus
+  useFocusEffect(
+    useCallback(() => {
+      checkClipboard();
+    }, [checkClipboard])
+  );
 
   // Handle URL prefill from Android share intent or external navigation
   useEffect(() => {

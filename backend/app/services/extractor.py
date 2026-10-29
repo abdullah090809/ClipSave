@@ -298,8 +298,22 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         cookie_str = "; ".join([f"{k}={v}" for k, v in cookies.items()])
         selected_headers["Cookie"] = cookie_str
 
-    # 1. Locate best audio stream
-    audio_formats = [f for f in formats if f.get("vcodec") == "none" and f.get("acodec") != "none" and f.get("url")]
+    def _is_direct_stream(fmt_dict: Dict[str, Any]) -> bool:
+        url_str = str(fmt_dict.get("url") or "")
+        proto_str = str(fmt_dict.get("protocol") or "")
+        return (
+            bool(url_str)
+            and not url_str.endswith(".m3u8")
+            and "manifest" not in url_str
+            and "m3u8" not in proto_str
+            and "dash" not in proto_str
+        )
+
+    # 1. Locate best audio stream (strictly direct streams)
+    audio_formats = [
+        f for f in formats
+        if f.get("vcodec") == "none" and f.get("acodec") != "none" and _is_direct_stream(f)
+    ]
     m4a_audios = [f for f in audio_formats if f.get("ext") in ("m4a", "mp3")]
     best_audio = m4a_audios[-1] if m4a_audios else (audio_formats[-1] if audio_formats else None)
     audio_url = best_audio.get("url") if best_audio else None
@@ -308,22 +322,28 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     available_format_options: List[MediaFormatOption] = []
 
     if detected_platform == "youtube":
-        # Video streams
-        video_formats = [f for f in formats if f.get("vcodec") != "none" and f.get("url")]
-        # Group into 1080p, 720p, 360p tiers
+        # Video streams (strictly direct streams, excluding m3u8 playlists)
+        direct_video_formats = [
+            f for f in formats
+            if f.get("vcodec") != "none" and _is_direct_stream(f)
+        ]
+        video_formats = direct_video_formats if direct_video_formats else [
+            f for f in formats if f.get("vcodec") != "none" and f.get("url")
+        ]
+
+        # Group into 1080p, 720p, 360p tiers (preferring highest quality MP4 stream in each tier)
         tiers: Dict[str, Dict[str, Any]] = {}
         for f in video_formats:
             h = f.get("height") or 0
             ext = f.get("ext") or ""
-            # Prefer MP4 container
-            if h >= 1080 and "1080p" not in tiers and ext == "mp4":
+            if h >= 1080 and ext == "mp4":
                 tiers["1080p"] = f
-            elif 720 <= h < 1080 and "720p" not in tiers and ext == "mp4":
+            elif 720 <= h < 1080 and ext == "mp4":
                 tiers["720p"] = f
-            elif 360 <= h < 720 and "360p" not in tiers and ext == "mp4":
+            elif 360 <= h < 720 and ext == "mp4":
                 tiers["360p"] = f
 
-        # If no mp4 found for a tier, take best regardless of container
+        # Fallback to webm or other containers if missing a tier
         for f in video_formats:
             h = f.get("height") or 0
             if h >= 1080 and "1080p" not in tiers:
