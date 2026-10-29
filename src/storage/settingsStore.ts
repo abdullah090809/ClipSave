@@ -3,7 +3,11 @@ import { AppSettings } from '../types';
 
 const SETTINGS_KEY = '@clipsave_settings_v1';
 
-export const PRODUCTION_BACKEND_URL = 'https://clipsave-96518.containers.snapdeploy.app';
+export const NGROK_BACKEND_URL = 'https://ef84-39-62-179-21.ngrok-free.app';
+export const SNAPDEPLOY_BACKEND_URL = 'https://clipsave-96518.containers.snapdeploy.app';
+
+// Active default endpoint for live testing (SnapDeploy preserved as fallback)
+export const PRODUCTION_BACKEND_URL = NGROK_BACKEND_URL;
 
 export function getDefaultBackendUrl(): string {
   // 1. Explicit environment variable configuration
@@ -12,7 +16,7 @@ export function getDefaultBackendUrl(): string {
     return envUrl.trim().replace(/\/$/, '');
   }
 
-  // 2. Fallback to deployed production backend
+  // 2. Default to active deployed backend
   return PRODUCTION_BACKEND_URL;
 }
 
@@ -69,7 +73,9 @@ export const getSettings = async (): Promise<AppSettings> => {
 
     const isDefaultDeployed = dynamicDefaultUrl.startsWith('https://');
 
-    if (isStoredLocal && isDefaultDeployed) {
+    const isStoredSnapDeploy = settings.backendBaseUrl === SNAPDEPLOY_BACKEND_URL;
+
+    if ((isStoredLocal && isDefaultDeployed) || isStoredSnapDeploy) {
       settings.backendBaseUrl = dynamicDefaultUrl;
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)).catch(() => {});
     }

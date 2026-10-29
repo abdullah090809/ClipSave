@@ -20,7 +20,11 @@ export async function wakeBackendContainer(subdomainOrUrl?: string): Promise<boo
     let subdomain = subdomainOrUrl;
     if (!subdomain || subdomain.startsWith('http')) {
       const settings = await getSettings();
-      subdomain = extractSnapDeploySubdomain(subdomain || settings.backendBaseUrl) || 'clipsave-96518';
+      subdomain = extractSnapDeploySubdomain(subdomain || settings.backendBaseUrl) || undefined;
+    }
+
+    if (!subdomain) {
+      return false;
     }
 
     const controller = new AbortController();
@@ -56,7 +60,7 @@ export async function checkAndWarmBackend(): Promise<{ awake: boolean; wokeUp: b
     const timeout = setTimeout(() => controller.abort(), 3500);
     const res = await fetch(healthUrl, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -67,9 +71,12 @@ export async function checkAndWarmBackend(): Promise<{ awake: boolean; wokeUp: b
 
     // Status 503 or X-Wake-Page indicates SnapDeploy sleeping container
     if (res.status === 503 || res.headers.get('X-Wake-Page') === 'true') {
-      const subdomain = extractSnapDeploySubdomain(baseUrl) || 'clipsave-96518';
-      await wakeBackendContainer(subdomain);
-      return { awake: false, wokeUp: true };
+      const subdomain = extractSnapDeploySubdomain(baseUrl);
+      if (subdomain) {
+        await wakeBackendContainer(subdomain);
+        return { awake: false, wokeUp: true };
+      }
+      return { awake: false, wokeUp: false };
     }
     return { awake: false, wokeUp: false };
   } catch {
@@ -100,7 +107,7 @@ export async function resolveTikTokUrl(
 
   const baseUrl = settings.backendBaseUrl.replace(/\/$/, '');
   const endpoint = `${baseUrl}/v1/resolve`;
-  const subdomain = extractSnapDeploySubdomain(baseUrl) || 'clipsave-96518';
+  const subdomain = extractSnapDeploySubdomain(baseUrl);
 
   const executeResolve = async (signal?: AbortSignal): Promise<Response> => {
     const init: RequestInit = {
@@ -109,6 +116,7 @@ export async function resolveTikTokUrl(
         'Content-Type': 'application/json',
         Accept: 'application/json',
         'User-Agent': 'ClipSave-Mobile/1.0.0 (Android; React-Native)',
+        'ngrok-skip-browser-warning': 'true',
       },
       body: JSON.stringify({ url }),
     };
@@ -136,7 +144,9 @@ export async function resolveTikTokUrl(
     // Check if container is sleeping (503 Service Unavailable or wake page header)
     if (response.status === 503 || response.headers.get('X-Wake-Page') === 'true') {
       onStatusUpdate?.('Waking up server...');
-      await wakeBackendContainer(subdomain);
+      if (subdomain) {
+        await wakeBackendContainer(subdomain);
+      }
 
       // Poll until container wakes up (up to 40 seconds)
       const maxAttempts = 18;
@@ -156,7 +166,7 @@ export async function resolveTikTokUrl(
           const pollTimeout = setTimeout(() => pollController.abort(), 4000);
           const healthRes = await fetch(`${baseUrl}/healthz`, {
             method: 'GET',
-            headers: { Accept: 'application/json' },
+            headers: { Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
             signal: pollController.signal,
           });
           clearTimeout(pollTimeout);

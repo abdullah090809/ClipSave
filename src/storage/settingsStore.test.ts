@@ -30,7 +30,6 @@ describe('settingsStore', () => {
     const url = getDefaultBackendUrl();
     expect(url).toBeDefined();
     expect(url.startsWith('https://')).toBe(true);
-    expect(url).toContain('snapdeploy.app');
   });
 
   test('UT-SET-03B: migrates stored local URL to production deployed URL', async () => {
