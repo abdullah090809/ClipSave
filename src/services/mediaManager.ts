@@ -168,47 +168,41 @@ export async function saveCompletedMedia(
       };
     }
 
-    // Save to device Gallery / MediaStore
-    let savedToGallery = false;
-    let permExplicitlyDenied = false;
+    // Request media library permissions if needed, but do not block attempting save
     try {
       const perm = await MediaLibrary.getPermissionsAsync();
       if (!perm?.granted && perm?.status !== 'granted') {
-        const requested = await MediaLibrary.requestPermissionsAsync();
-        if (requested?.status === 'denied' && !requested?.granted) {
-          permExplicitlyDenied = true;
-        }
+        await MediaLibrary.requestPermissionsAsync();
       }
     } catch {
-      // In Expo Go or sandboxed environments, getPermissionsAsync throws.
-      // Allow best-effort attempt with createAssetAsync / saveToLibraryAsync.
-      permExplicitlyDenied = false;
+      // In Expo Go or sandboxed environments, getPermissionsAsync may throw.
+      // Continue with best-effort asset creation.
     }
 
-    if (!permExplicitlyDenied) {
-      try {
-        const asset = await MediaLibrary.createAssetAsync(destinationPath);
-        if (asset) {
-          savedToGallery = true;
-          try {
-            const album = await MediaLibrary.getAlbumAsync('ClipSave');
-            if (album) {
-              await MediaLibrary.addAssetsToAlbumAsync([asset], album, true);
-            } else {
-              await MediaLibrary.createAlbumAsync('ClipSave', asset, true);
-            }
-          } catch {
-            // Album grouping optional; asset is already in MediaStore
-          }
-        }
-      } catch (assetErr) {
-        console.warn('createAssetAsync failed, trying saveToLibraryAsync fallback:', assetErr);
+    // Save to device Gallery / MediaStore
+    let savedToGallery = false;
+    try {
+      const asset = await MediaLibrary.createAssetAsync(destinationPath);
+      if (asset) {
+        savedToGallery = true;
         try {
-          await MediaLibrary.saveToLibraryAsync(destinationPath);
-          savedToGallery = true;
-        } catch (saveErr) {
-          console.warn('saveToLibraryAsync failed:', saveErr);
+          const album = await MediaLibrary.getAlbumAsync('ClipSave');
+          if (album) {
+            await MediaLibrary.addAssetsToAlbumAsync([asset], album, true);
+          } else {
+            await MediaLibrary.createAlbumAsync('ClipSave', asset, true);
+          }
+        } catch {
+          // Album grouping optional; asset is already published to MediaStore
         }
+      }
+    } catch (assetErr) {
+      console.warn('createAssetAsync failed, trying saveToLibraryAsync fallback:', assetErr);
+      try {
+        await MediaLibrary.saveToLibraryAsync(destinationPath);
+        savedToGallery = true;
+      } catch (saveErr) {
+        console.warn('saveToLibraryAsync failed:', saveErr);
       }
     }
 
@@ -402,16 +396,32 @@ export async function saveOrExportToGallery(fileUri: string): Promise<boolean> {
 }
 
 /**
- * Displays an informational dialog with the exact file storage path, filename, and options to save/open.
+ * Displays an informational dialog with the exact file storage path, filename, gallery status, and options to play/save/share.
  */
-export function showFileLocationInfo(fileUri: string, title: string = 'Downloaded Video') {
+export function showFileLocationInfo(
+  fileUri: string,
+  title: string = 'Downloaded Video',
+  isSavedToGallery: boolean = false
+) {
   const filename = fileUri.split('/').pop() || 'video.mp4';
   const cleanPath = fileUri.replace('file://', '');
 
+  const statusText = isSavedToGallery
+    ? 'Status: Saved to Phone Gallery (DCIM / Movies / ClipSave album).'
+    : 'Status: Saved in offline App Storage.';
+
+  const detailText = isSavedToGallery
+    ? 'This video is available in your phone\'s Gallery / Photos app.\n\nOffline App File:\n' + cleanPath
+    : 'This video is currently in the app\'s private offline storage.\n\nStorage Path:\n' + cleanPath + '\n\nTo view it in your phone\'s Gallery app, choose "Save to Device" below.';
+
   Alert.alert(
     'File Storage Location',
-    `Title: ${title}\n\nFile Name:\n${filename}\n\nStorage Path:\n${cleanPath}\n\nStatus: Stored in app local storage.\n\nYou can export this video directly to your Gallery or Files using "Save to Device".`,
+    `Title: ${title}\n\nFile Name: ${filename}\n\n${statusText}\n\n${detailText}`,
     [
+      {
+        text: 'Play Video',
+        onPress: () => playVideo(fileUri),
+      },
       {
         text: 'Save to Device',
         onPress: () => saveOrExportToGallery(fileUri),

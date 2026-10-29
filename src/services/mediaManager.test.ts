@@ -122,6 +122,8 @@ describe('mediaManager', () => {
     (MediaLibrary.requestPermissionsAsync as jest.Mock).mockResolvedValue({
       status: 'denied',
     });
+    (MediaLibrary.createAssetAsync as jest.Mock).mockRejectedValueOnce(new Error('Permission denied'));
+    (MediaLibrary.saveToLibraryAsync as jest.Mock).mockRejectedValueOnce(new Error('Permission denied'));
 
     const result = await saveCompletedMedia('file:///tmp/good.tmp', 'video.mp4', true);
     expect(result.success).toBe(true);

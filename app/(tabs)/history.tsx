@@ -205,7 +205,7 @@ export default function HistoryScreen() {
           key: 'location',
           label: 'View File Location & Info',
           icon: 'folder-open-outline',
-          onPress: () => showFileLocationInfo(selectedItem.fileUri, selectedItem.title),
+          onPress: () => showFileLocationInfo(selectedItem.fileUri, selectedItem.title, true),
         },
         {
           key: 'share',

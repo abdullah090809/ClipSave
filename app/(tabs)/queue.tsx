@@ -141,7 +141,12 @@ const QueueJobCard = memo(function QueueJobCard({
               <Text
                 onPress={
                   job.finalFileUri
-                    ? () => showFileLocationInfo(job.finalFileUri!, job.media.title)
+                    ? () =>
+                        showFileLocationInfo(
+                          job.finalFileUri!,
+                          job.media.title,
+                          job.statusMessage === 'Saved to Gallery'
+                        )
                     : undefined
                 }
                 style={{
@@ -444,7 +449,12 @@ export default function QueueScreen() {
                 key: 'location',
                 label: 'View File Location & Info',
                 icon: 'folder-open-outline' as const,
-                onPress: () => showFileLocationInfo(selectedJob.finalFileUri!, selectedJob.media.title),
+                onPress: () =>
+                  showFileLocationInfo(
+                    selectedJob.finalFileUri!,
+                    selectedJob.media.title,
+                    selectedJob.statusMessage === 'Saved to Gallery'
+                  ),
               },
               {
                 key: 'share',
