@@ -187,3 +187,64 @@ async def test_cors_local_network_origin():
         resp = await client.options("/v1/resolve", headers=headers)
         assert resp.status_code == 200
         assert resp.headers.get("access-control-allow-origin") == "http://192.168.1.100:8081"
+
+
+@pytest.mark.asyncio
+async def test_video_with_audio_priority():
+    from app.services.extractor import extract_media_metadata, _stream_sessions
+    from unittest.mock import patch
+
+    # Mock formats where format 0 has video+audio, format 1 is video-only, format 2 is audio-only
+    mock_info = {
+        "id": "ig_test_audio",
+        "extractor_key": "Instagram",
+        "title": "IG Video With Audio",
+        "uploader": "testuser",
+        "duration": 15,
+        "formats": [
+            {
+                "format_id": "prog_720",
+                "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                "vcodec": "avc1",
+                "acodec": "mp4a",
+                "height": 720,
+                "protocol": "https",
+                "ext": "mp4",
+                "filesize": 10000000,
+            },
+            {
+                "format_id": "dash_video_1080",
+                "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+                "vcodec": "avc1",
+                "acodec": "none",
+                "height": 1080,
+                "protocol": "https",
+                "ext": "mp4",
+                "filesize": 15000000,
+            },
+            {
+                "format_id": "dash_audio",
+                "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+                "vcodec": "none",
+                "acodec": "mp4a",
+                "protocol": "https",
+                "ext": "m4a",
+                "filesize": 1500000,
+            },
+        ],
+    }
+
+    from app.config import settings
+    with patch.object(settings, "ENABLE_MOCK_EXTRACTOR", False):
+        with patch("app.services.extractor.settings.ENABLE_MOCK_EXTRACTOR", False):
+            with patch("app.services.extractor._run_ytdlp_extract", return_value=mock_info):
+                result = await extract_media_metadata("https://www.instagram.com/reel/C8q8q0_PzZg/", base_url="http://test")
+                assert result.platform == "instagram"
+                # It must have selected prog_720 which has BOTH video and audio!
+                assert len(result.availableFormats) >= 2
+                video_format = result.availableFormats[0]
+                stream_id = video_format.mediaUrl.split("/")[-1]
+                session = _stream_sessions.get(stream_id)
+                assert session is not None
+                # Must be the URL that has audio included
+                assert session["media_url"] == "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"

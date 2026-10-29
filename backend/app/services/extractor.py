@@ -478,18 +478,32 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 )
             )
     else:
-        # TikTok (and generic progressive video)
-        # Find best mp4 video stream
-        media_url: Optional[str] = None
-        filesize: Optional[int] = None
+        # TikTok, Instagram, and generic progressive video
+        # Priority 1: Best MP4 video stream that ALREADY HAS AUDIO included
+        selected_format: Optional[Dict[str, Any]] = None
         for f in reversed(formats):
-            if f.get("url") and (f.get("vcodec") != "none" or not formats):
-                media_url = f.get("url")
-                filesize = f.get("filesize") or f.get("filesize_approx")
+            if (
+                f.get("url")
+                and _is_direct_stream(f)
+                and f.get("vcodec") != "none"
+                and f.get("acodec") != "none"
+            ):
+                selected_format = f
                 break
 
-        if not media_url:
-            media_url = info.get("url")
+        # Priority 2: Best video stream (will be paired with audio_url for FFmpeg remux if acodec is none)
+        if not selected_format:
+            for f in reversed(formats):
+                if f.get("url") and _is_direct_stream(f) and f.get("vcodec") != "none":
+                    selected_format = f
+                    break
+
+        # Priority 3: Any available stream
+        if not selected_format and formats:
+            selected_format = formats[-1]
+
+        media_url = selected_format.get("url") if selected_format else info.get("url")
+        filesize = (selected_format.get("filesize") or selected_format.get("filesize_approx")) if selected_format else None
 
         if not media_url:
             raise ExtractionError(
@@ -498,11 +512,22 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 status_code=422,
             )
 
+        # Critical fix for Instagram/TikTok audio:
+        # If the video stream has no audio track (video-only DASH stream),
+        # pair it with audio_url so FFmpeg remuxes video + audio together in real time.
+        needs_audio_mux = bool(
+            selected_format
+            and selected_format.get("acodec") == "none"
+            and audio_url
+        )
+        a_url = audio_url if needs_audio_mux else None
+        total_estimated_size = (filesize or 0) + (audio_size or 0) if (needs_audio_mux and filesize and audio_size) else filesize
+
         stream_id_video = f"stream_{secrets.token_urlsafe(24)}"
         register_stream_session(
             stream_id=stream_id_video,
             media_url=media_url,
-            audio_url=None,
+            audio_url=a_url,
             headers=selected_headers,
             title=title,
             is_audio_only=False,
@@ -519,12 +544,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 extension="mp4",
                 isVideo=True,
                 mediaUrl=client_video_url,
-                estimatedSizeBytes=filesize,
+                estimatedSizeBytes=total_estimated_size,
                 note=video_note,
             )
         )
 
-        # Audio Only for TikTok
+        # Audio Only (MP3)
         stream_id_audio = f"stream_{secrets.token_urlsafe(24)}"
         register_stream_session(
             stream_id=stream_id_audio,
@@ -553,6 +578,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     default_format = available_format_options[0] if available_format_options else None
     default_media_url = default_format.mediaUrl if default_format else ""
 
+    # Prevent directMediaUrl fallback to a silent stream when audio remuxing is required
+    if detected_platform == "youtube":
+        direct_fallback = None
+    else:
+        direct_fallback = media_url if not needs_audio_mux else None
+
     return ResolvedMediaResponse(
         id=str(info.get("id") or "vid"),
         sourceUrl=url,
@@ -563,7 +594,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         durationSeconds=float(info.get("duration") or 0) if info.get("duration") else None,
         thumbnailUrl=info.get("thumbnail"),
         mediaUrl=default_media_url,
-        directMediaUrl=info.get("url"),
+        directMediaUrl=direct_fallback,
         httpHeaders=selected_headers,
         estimatedSizeBytes=default_format.estimatedSizeBytes if default_format else None,
         format=default_format.extension if default_format else "mp4",

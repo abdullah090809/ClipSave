@@ -137,10 +137,22 @@ async def stream_media_endpoint(stream_id: str, request: Request):
 
         ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
         try:
+            header_args = []
+            if upstream_headers:
+                header_str = "".join([
+                    f"{k}: {v}\r\n"
+                    for k, v in upstream_headers.items()
+                    if k.lower() in ("user-agent", "cookie", "referer")
+                ])
+                if header_str:
+                    header_args = ["-headers", header_str]
+
             cmd = [
                 ffmpeg_bin,
                 "-y",
+                *header_args,
                 "-i", upstream_url,
+                *header_args,
                 "-i", audio_url,
                 "-c", "copy",
                 "-movflags", "frag_keyframe+empty_moov",
