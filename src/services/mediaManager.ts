@@ -179,21 +179,32 @@ export async function saveCompletedMedia(
       // Continue with best-effort asset creation.
     }
 
-    // Save to device Gallery / MediaStore
+    // Save to device Gallery / MediaStore (single copy, zero duplicates)
     let savedToGallery = false;
     try {
-      const asset = await MediaLibrary.createAssetAsync(destinationPath);
-      if (asset) {
-        savedToGallery = true;
-        try {
-          const album = await MediaLibrary.getAlbumAsync('ClipSave');
-          if (album) {
-            await MediaLibrary.addAssetsToAlbumAsync([asset], album, true);
-          } else {
-            await MediaLibrary.createAlbumAsync('ClipSave', asset, true);
+      let album: MediaLibrary.Album | null = null;
+      try {
+        album = await MediaLibrary.getAlbumAsync('ClipSave');
+      } catch {
+        album = null;
+      }
+
+      if (album) {
+        // Direct insertion into existing ClipSave album - single copy, zero duplicates!
+        const asset = await MediaLibrary.createAssetAsync(destinationPath, album);
+        if (asset) {
+          savedToGallery = true;
+        }
+      } else {
+        // First-time album creation: create asset and move (copyAsset: false) to prevent duplication
+        const asset = await MediaLibrary.createAssetAsync(destinationPath);
+        if (asset) {
+          savedToGallery = true;
+          try {
+            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
+          } catch {
+            // Album grouping optional; asset is already published to MediaStore
           }
-        } catch {
-          // Album grouping optional; asset is already published to MediaStore
         }
       }
     } catch (assetErr) {
@@ -370,7 +381,16 @@ export async function saveOrExportToGallery(fileUri: string): Promise<boolean> {
 
     let saved = false;
     try {
-      const asset = await MediaLibrary.createAssetAsync(targetUri);
+      let album: MediaLibrary.Album | null = null;
+      try {
+        album = await MediaLibrary.getAlbumAsync('ClipSave');
+      } catch {
+        album = null;
+      }
+
+      const asset = album
+        ? await MediaLibrary.createAssetAsync(targetUri, album)
+        : await MediaLibrary.createAssetAsync(targetUri);
       if (asset) {
         saved = true;
       }
