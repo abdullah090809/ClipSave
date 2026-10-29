@@ -78,6 +78,10 @@ export default function HomeScreen() {
               ? check.isShort
                 ? 'Instagram Reel'
                 : 'Instagram Video'
+              : check.platform === 'facebook'
+              ? check.isShort
+                ? 'Facebook Reel'
+                : 'Facebook Video'
               : 'TikTok Video'
           );
         } else {
@@ -342,7 +346,7 @@ export default function HomeScreen() {
                 { color: colors.textSecondary, textAlign: 'center', marginTop: 4 },
               ]}
             >
-              Save YouTube, TikTok & Instagram videos
+              Save YouTube, TikTok, Instagram & Facebook videos
             </Text>
 
             {/* Supported Platform Badges */}
@@ -359,9 +363,9 @@ export default function HomeScreen() {
                 <Ionicons name="logo-instagram" size={13} color="#E1306C" />
                 <Text style={[typography.micro, { color: '#E1306C', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>Instagram</Text>
               </View>
-              <View style={[styles.platformBadge, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant, opacity: 0.7 }]}>
-                <Ionicons name="logo-facebook" size={13} color={colors.textMuted} />
-                <Text style={[typography.micro, { color: colors.textMuted, marginLeft: 4 }]}>FB (Soon)</Text>
+              <View style={[styles.platformBadge, { backgroundColor: 'rgba(24, 119, 242, 0.12)', borderColor: '#1877F2' }]}>
+                <Ionicons name="logo-facebook" size={13} color="#1877F2" />
+                <Text style={[typography.micro, { color: '#1877F2', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>Facebook</Text>
               </View>
             </View>
           </View>
@@ -392,6 +396,8 @@ export default function HomeScreen() {
                     ? 'logo-youtube'
                     : clipboardPlatform.includes('Instagram')
                     ? 'logo-instagram'
+                    : clipboardPlatform.includes('Facebook')
+                    ? 'logo-facebook'
                     : 'musical-notes'
                 }
                 size={16}
@@ -437,10 +443,10 @@ export default function HomeScreen() {
                 </View>
               )}
               {liveDetection.platform === 'facebook' && (
-                <View style={[styles.detectedPill, { backgroundColor: 'rgba(59, 130, 246, 0.15)', borderColor: '#3B82F6' }]}>
-                  <Ionicons name="logo-facebook" size={14} color="#3B82F6" />
-                  <Text style={[typography.micro, { color: '#3B82F6', fontWeight: '700', marginLeft: 4 }]}>
-                    Facebook (Coming Soon)
+                <View style={[styles.detectedPill, { backgroundColor: 'rgba(24, 119, 242, 0.15)', borderColor: '#1877F2' }]}>
+                  <Ionicons name="logo-facebook" size={14} color="#1877F2" />
+                  <Text style={[typography.micro, { color: '#1877F2', fontWeight: '700', marginLeft: 4 }]}>
+                    {liveDetection.isShort ? 'Facebook Reel' : 'Facebook Video'}
                   </Text>
                 </View>
               )}
@@ -469,7 +475,7 @@ export default function HomeScreen() {
                 typography.body,
                 { color: colors.textPrimary },
               ]}
-              placeholder="Paste YouTube, TikTok, or Instagram link..."
+              placeholder="Paste YouTube, TikTok, Instagram, or Facebook link..."
               placeholderTextColor={colors.textMuted}
               value={inputUrl}
               onChangeText={(text) => {
@@ -562,12 +568,16 @@ export default function HomeScreen() {
                           ? 'rgba(239, 68, 68, 0.12)'
                           : resolvedMedia.platform === 'instagram'
                           ? 'rgba(225, 48, 108, 0.12)'
+                          : resolvedMedia.platform === 'facebook'
+                          ? 'rgba(24, 119, 242, 0.12)'
                           : 'rgba(6, 182, 212, 0.12)',
                       borderColor:
                         resolvedMedia.platform === 'youtube'
                           ? '#EF4444'
                           : resolvedMedia.platform === 'instagram'
                           ? '#E1306C'
+                          : resolvedMedia.platform === 'facebook'
+                          ? '#1877F2'
                           : '#06B6D4',
                     },
                   ]}
@@ -578,6 +588,8 @@ export default function HomeScreen() {
                         ? 'logo-youtube'
                         : resolvedMedia.platform === 'instagram'
                         ? 'logo-instagram'
+                        : resolvedMedia.platform === 'facebook'
+                        ? 'logo-facebook'
                         : 'musical-notes'
                     }
                     size={12}
@@ -586,6 +598,8 @@ export default function HomeScreen() {
                         ? '#EF4444'
                         : resolvedMedia.platform === 'instagram'
                         ? '#E1306C'
+                        : resolvedMedia.platform === 'facebook'
+                        ? '#1877F2'
                         : '#06B6D4'
                     }
                   />
@@ -598,6 +612,8 @@ export default function HomeScreen() {
                             ? '#EF4444'
                             : resolvedMedia.platform === 'instagram'
                             ? '#E1306C'
+                            : resolvedMedia.platform === 'facebook'
+                            ? '#1877F2'
                             : '#06B6D4',
                         marginLeft: 4,
                         fontWeight: '700',
@@ -608,6 +624,8 @@ export default function HomeScreen() {
                       ? 'YouTube'
                       : resolvedMedia.platform === 'instagram'
                       ? 'Instagram'
+                      : resolvedMedia.platform === 'facebook'
+                      ? 'Facebook'
                       : 'TikTok'}
                   </Text>
                 </View>

@@ -94,6 +94,10 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
             "instagram:story",
             "instagram:tag",
             "instagram:user",
+            "facebook",
+            "facebook:reel",
+            "FacebookPluginsVideo",
+            "FacebookRedirectURL",
             "generic",
         ],
         "socket_timeout": 15,
@@ -121,7 +125,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     """
     is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
     is_instagram = "instagram.com" in url.lower() or "instagr.am" in url.lower() or "ddinstagram.com" in url.lower()
-    platform = "youtube" if is_youtube else ("instagram" if is_instagram else "tiktok")
+    is_facebook = "facebook.com" in url.lower() or "fb.watch" in url.lower() or "fb.com" in url.lower()
+    platform = (
+        "youtube"
+        if is_youtube
+        else ("instagram" if is_instagram else ("facebook" if is_facebook else "tiktok"))
+    )
 
     if settings.ENABLE_MOCK_EXTRACTOR:
         log_safe_info("Using mock extractor response", url)
@@ -222,6 +231,49 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 author="InstagramCreator",
                 authorUsername="@instagramcreator",
                 durationSeconds=28.0,
+                thumbnailUrl="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400",
+                mediaUrl=formats[0].mediaUrl,
+                directMediaUrl="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                estimatedSizeBytes=formats[0].estimatedSizeBytes,
+                format="mp4",
+                quality="1080p",
+                availableFormats=formats,
+                expiresAt=None,
+                isCleanSourceVerified=True,
+            )
+
+        if is_facebook:
+            # Facebook Mock Metadata
+            formats = [
+                MediaFormatOption(
+                    id="1080p",
+                    label="Facebook HD Video",
+                    quality="1080p",
+                    extension="mp4",
+                    isVideo=True,
+                    mediaUrl=f"{host_prefix}/v1/stream/mock_fb_1080p",
+                    estimatedSizeBytes=19200000,
+                    note="HD Video",
+                ),
+                MediaFormatOption(
+                    id="audio",
+                    label="Audio Only (MP3)",
+                    quality="audio",
+                    extension="mp3",
+                    isVideo=False,
+                    mediaUrl=f"{host_prefix}/v1/stream/mock_fb_audio",
+                    estimatedSizeBytes=2200000,
+                    note="Audio Track",
+                ),
+            ]
+            return ResolvedMediaResponse(
+                id="mock_fb_123",
+                sourceUrl=url,
+                platform="facebook",
+                title="Sample Facebook Video (Development Fixture)",
+                author="FacebookCreator",
+                authorUsername="@facebookcreator",
+                durationSeconds=45.0,
                 thumbnailUrl="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400",
                 mediaUrl=formats[0].mediaUrl,
                 directMediaUrl="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
@@ -343,6 +395,8 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         detected_platform = "youtube"
     elif "instagram" in extractor_key or "instagram.com" in url.lower() or "instagr.am" in url.lower() or "ddinstagram.com" in url.lower():
         detected_platform = "instagram"
+    elif "facebook" in extractor_key or "facebook.com" in url.lower() or "fb.watch" in url.lower() or "fb.com" in url.lower():
+        detected_platform = "facebook"
     elif "tiktok" in extractor_key or "tiktok.com" in url.lower():
         detected_platform = "tiktok"
     else:
@@ -534,8 +588,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             ext="mp4",
         )
         client_video_url = f"{base_url.rstrip('/')}/v1/stream/{stream_id_video}" if base_url else media_url
-        video_label = "Instagram HD Video" if detected_platform == "instagram" else "1080p HD (No Watermark)"
-        video_note = "HD Reel / Video" if detected_platform == "instagram" else "Watermark Free"
+        video_label = (
+            "Facebook HD Video"
+            if detected_platform == "facebook"
+            else ("Instagram HD Video" if detected_platform == "instagram" else "1080p HD (No Watermark)")
+        )
+        video_note = "HD Reel / Video" if detected_platform in ("instagram", "facebook") else "Watermark Free"
         available_format_options.append(
             MediaFormatOption(
                 id="1080p",

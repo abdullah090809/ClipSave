@@ -225,7 +225,7 @@ export default function PreviewScreen() {
           </View>
           <View style={styles.summaryText}>
             <Text style={[typography.titleMedium, { color: colors.textPrimary }]} numberOfLines={4}>
-              {media.title || (media.platform === 'youtube' ? 'YouTube video' : media.platform === 'instagram' ? 'Instagram video' : 'TikTok video')}
+              {media.title || (media.platform === 'youtube' ? 'YouTube video' : media.platform === 'instagram' ? 'Instagram video' : media.platform === 'facebook' ? 'Facebook video' : 'TikTok video')}
             </Text>
             {media.author ? (
               <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: spacing.xs }]} numberOfLines={1}>

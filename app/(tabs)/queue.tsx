@@ -132,7 +132,7 @@ const QueueJobCard = memo(function QueueJobCard({
             style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}
             numberOfLines={2}
           >
-            {job.media.title || (job.media.platform === 'youtube' ? 'YouTube Video' : job.media.platform === 'instagram' ? 'Instagram Video' : 'TikTok Video')}
+            {job.media.title || (job.media.platform === 'youtube' ? 'YouTube Video' : job.media.platform === 'instagram' ? 'Instagram Video' : job.media.platform === 'facebook' ? 'Facebook Video' : 'TikTok Video')}
           </Text>
           <Text
             style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}

@@ -33,6 +33,7 @@ ALLOWED_FACEBOOK_HOSTS = {
     "m.facebook.com",
     "fb.watch",
     "web.facebook.com",
+    "fb.com",
 }
 
 MAX_URL_LENGTH = 2048
@@ -87,9 +88,19 @@ def validate_media_url(raw_url: str) -> Tuple[bool, str, str, str]:
             return False, "", "instagram", "Instagram link is missing a reel or post reference."
         return True, url, "instagram", ""
 
-    # Facebook check (future)
+    # Facebook check
     if hostname in ALLOWED_FACEBOOK_HOSTS:
-        return False, "", "facebook", "Facebook support is coming in an upcoming update! Currently YouTube, TikTok, and Instagram are supported."
+        path = parsed.path or ""
+        is_fb_watch_host = hostname == "fb.watch" and len(path) > 1
+        is_reel = path.startswith("/reel/") or path.startswith("/reels/") or path.startswith("/share/r/")
+        is_watch = (path.startswith("/watch") or path.startswith("/watch/")) and bool(parse_qs(parsed.query).get("v"))
+        is_video = "/videos/" in path or path.startswith("/share/v/")
+        is_php_video = path.startswith("/video.php") and bool(parse_qs(parsed.query).get("v"))
+
+        if not is_fb_watch_host and not is_reel and not is_watch and not is_video and not is_php_video and len(path) <= 1:
+            return False, "", "facebook", "Facebook link is missing a video or reel reference."
+
+        return True, url, "facebook", ""
 
     # YouTube check
     if hostname in ALLOWED_YOUTUBE_HOSTS:
@@ -115,7 +126,7 @@ def validate_media_url(raw_url: str) -> Tuple[bool, str, str, str]:
             return False, "", "tiktok", "URL path is missing a specific video reference."
         return True, url, "tiktok", ""
 
-    return False, "", "unknown", f"Hostname '{hostname}' is not an authorized domain. Only YouTube, TikTok, and Instagram links are supported."
+    return False, "", "unknown", f"Hostname '{hostname}' is not an authorized domain. Only YouTube, TikTok, Instagram, and Facebook links are supported."
 
 
 def validate_tiktok_url(raw_url: str) -> Tuple[bool, str, str]:

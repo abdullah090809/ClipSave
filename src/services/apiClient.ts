@@ -1,6 +1,7 @@
 import { ResolvedMedia, ResolveError } from '../types';
 import { getSettings } from '../storage/settingsStore';
 import { resolveMockTikTokUrl } from './mockResolver';
+import { detectPlatform } from '../utils/urlValidator';
 
 /**
  * Extracts the SnapDeploy container subdomain if present in URL
@@ -242,7 +243,7 @@ export async function resolveTikTokUrl(
     return {
       id: String(data.id || Date.now()),
       sourceUrl: url,
-      platform: data.platform || (url.includes('youtube') || url.includes('youtu.be') ? 'youtube' : 'tiktok'),
+      platform: data.platform || (detectPlatform(url).platform !== 'generic' ? detectPlatform(url).platform : 'tiktok'),
       title: data.title || 'Untitled Video',
       author: data.author || 'Unknown Creator',
       authorUsername: data.authorUsername,

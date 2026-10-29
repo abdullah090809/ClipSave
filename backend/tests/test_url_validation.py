@@ -121,9 +121,32 @@ def test_reject_instagram_root():
     assert "missing a reel or post reference" in err
 
 
-def test_future_platforms_friendly_error():
-    fb_url = "https://www.facebook.com/watch/?v=123"
-    is_valid, _, platform, err = validate_media_url(fb_url)
+def test_validate_facebook_urls():
+    fb_urls = [
+        ("https://www.facebook.com/reel/1022646279145698", "facebook"),
+        ("https://facebook.com/watch/?v=123456789", "facebook"),
+        ("https://fb.watch/mX7d8E9v/", "facebook"),
+        ("https://m.facebook.com/story.php?story_fbid=123&id=456", "facebook"),
+        ("https://www.facebook.com/username/videos/123456789/", "facebook"),
+        ("https://www.facebook.com/share/r/abc123xyz/", "facebook"),
+    ]
+    for url, expected_platform in fb_urls:
+        is_valid, canon, platform, err = validate_media_url(url)
+        assert is_valid is True, f"Failed for {url}: {err}"
+        assert platform == expected_platform
+        assert canon == url
+
+
+def test_reject_facebook_root():
+    url = "https://www.facebook.com/"
+    is_valid, _, platform, err = validate_media_url(url)
     assert is_valid is False
-    assert platform == "facebook"
-    assert "Facebook support is coming" in err
+    assert "missing a video or reel reference" in err
+
+
+def test_reject_unsupported_platform():
+    reddit_url = "https://www.reddit.com/r/videos/comments/123/sample/"
+    is_valid, _, platform, err = validate_media_url(reddit_url)
+    assert is_valid is False
+    assert platform == "unknown"
+    assert "not an authorized domain" in err

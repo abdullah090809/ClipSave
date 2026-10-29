@@ -115,6 +115,22 @@ async def test_resolve_valid_instagram_url():
         assert any(f["quality"] == "audio" for f in data["availableFormats"])
 
 
+@pytest.mark.asyncio
+async def test_resolve_valid_facebook_url():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = {"url": "https://www.facebook.com/reel/1022646279145698"}
+        resp = await client.post("/v1/resolve", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == "mock_fb_123"
+        assert data["sourceUrl"] == payload["url"]
+        assert data["platform"] == "facebook"
+        assert "availableFormats" in data
+        assert any(f["isVideo"] for f in data["availableFormats"])
+        assert any(f["quality"] == "audio" for f in data["availableFormats"])
+
+
 
 @pytest.mark.asyncio
 async def test_resolve_invalid_domain_rejected():

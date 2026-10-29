@@ -185,11 +185,27 @@ describe('validateMediaUrl', () => {
     expect(resRoot.errorMessage).toContain('Please provide a link to a specific Instagram');
   });
 
-  test('friendly message for Facebook links (upcoming)', () => {
-    const input = 'https://www.facebook.com/watch/?v=123456';
-    const result = validateMediaUrl(input);
-    expect(result.isValid).toBe(false);
-    expect(result.platform).toBe('facebook');
-    expect(result.errorMessage).toContain('Facebook support is coming');
+  test('validates Facebook Reel and video links', () => {
+    const reel = 'https://www.facebook.com/reel/1022646279145698?mibextid=rS40aB7S9Ucbxw6v';
+    const resReel = validateMediaUrl(reel);
+    expect(resReel.isValid).toBe(true);
+    expect(resReel.platform).toBe('facebook');
+    expect(resReel.isShort).toBe(true);
+    expect(resReel.normalizedUrl).not.toContain('mibextid=');
+
+    const watch = 'https://www.facebook.com/watch/?v=123456';
+    const resWatch = validateMediaUrl(watch);
+    expect(resWatch.isValid).toBe(true);
+    expect(resWatch.platform).toBe('facebook');
+
+    const fbWatch = 'https://fb.watch/mX7d8E9v/';
+    const resFbWatch = validateMediaUrl(fbWatch);
+    expect(resFbWatch.isValid).toBe(true);
+    expect(resFbWatch.platform).toBe('facebook');
+
+    const root = 'https://www.facebook.com/';
+    const resRoot = validateMediaUrl(root);
+    expect(resRoot.isValid).toBe(false);
+    expect(resRoot.errorMessage).toContain('Please provide a link to a specific Facebook');
   });
 });

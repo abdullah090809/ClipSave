@@ -166,6 +166,52 @@ export async function resolveMockMediaUrl(url: string): Promise<ResolvedMedia> {
     };
   }
 
+  if (platform === 'facebook') {
+    const formats: MediaFormatOption[] = [
+      {
+        id: '1080p',
+        label: 'Facebook HD Video',
+        quality: '1080p',
+        extension: 'mp4',
+        isVideo: true,
+        mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+        estimatedSizeBytes: 19200000,
+        note: 'HD Video',
+      },
+      {
+        id: 'audio',
+        label: 'Audio Only (MP3)',
+        quality: 'audio',
+        extension: 'mp3',
+        isVideo: false,
+        mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+        estimatedSizeBytes: 2200000,
+        note: 'Audio Track',
+      },
+    ];
+
+    return {
+      id: `mock_fb_${Date.now()}`,
+      sourceUrl: url,
+      platform: 'facebook',
+      title: isShort
+        ? `Popular Facebook Reel - ${new Date().toLocaleTimeString()} (Dev Mock)`
+        : `Facebook Video - ${new Date().toLocaleTimeString()} (Dev Mock)`,
+      author: 'FacebookCreator',
+      authorUsername: '@facebookcreator',
+      durationSeconds: 45,
+      thumbnailUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400',
+      mediaUrl: formats[0]!.mediaUrl,
+      directMediaUrl: formats[0]!.mediaUrl,
+      estimatedSizeBytes: formats[0]!.estimatedSizeBytes,
+      format: 'mp4',
+      quality: '1080p',
+      availableFormats: formats,
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      isCleanSourceVerified: true,
+    };
+  }
+
   return {
     ...MOCK_RESOLVED_MEDIA,
     sourceUrl: url,

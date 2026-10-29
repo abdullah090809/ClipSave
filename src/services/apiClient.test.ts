@@ -59,4 +59,22 @@ describe('apiClient', () => {
     expect(media.title).toContain('Short');
     expect(media.availableFormats).toBeDefined();
   });
+
+  test('resolves Instagram Reel with correct platform and audio options', async () => {
+    const media = await resolveTikTokUrl('https://www.instagram.com/reel/C8q8q0_PzZg/');
+    expect(media).toBeDefined();
+    expect(media.platform).toBe('instagram');
+    expect(media.title).toContain('Instagram Reel');
+    expect(media.availableFormats).toBeDefined();
+    expect(media.availableFormats!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('resolves Facebook Reel with correct platform and audio options', async () => {
+    const media = await resolveTikTokUrl('https://www.facebook.com/reel/1234567890');
+    expect(media).toBeDefined();
+    expect(media.platform).toBe('facebook');
+    expect(media.title).toContain('Facebook Reel');
+    expect(media.availableFormats).toBeDefined();
+    expect(media.availableFormats!.length).toBeGreaterThanOrEqual(2);
+  });
 });

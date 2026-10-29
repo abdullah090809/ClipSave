@@ -43,6 +43,7 @@ export const ALLOWED_FACEBOOK_HOSTS = new Set([
   'm.facebook.com',
   'fb.watch',
   'web.facebook.com',
+  'fb.com',
 ]);
 
 const MAX_URL_LENGTH = 2048;
@@ -87,9 +88,17 @@ export function detectPlatform(rawInput: string): { platform: SupportedPlatform;
     return { platform: 'instagram', isShort };
   }
 
-  // Facebook detection (coming soon)
-  if (lower.includes('facebook.com') || lower.includes('fb.watch')) {
-    return { platform: 'facebook' };
+  // Facebook detection
+  if (
+    lower.includes('facebook.com') ||
+    lower.includes('fb.watch') ||
+    lower.includes('fb.com')
+  ) {
+    const isShort =
+      lower.includes('/reel/') ||
+      lower.includes('/reels/') ||
+      lower.includes('/share/r/');
+    return { platform: 'facebook', isShort };
   }
 
   return { platform: 'generic' };
@@ -191,10 +200,31 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
 
     // Check Facebook
     if (ALLOWED_FACEBOOK_HOSTS.has(hostname)) {
+      const pathname = parsed.pathname;
+      const isFbWatchHost = hostname === 'fb.watch' && pathname.length > 1;
+      const isReel = pathname.startsWith('/reel/') || pathname.startsWith('/reels/') || pathname.startsWith('/share/r/');
+      const isWatch = (pathname.startsWith('/watch') || pathname.startsWith('/watch/')) && parsed.searchParams.has('v');
+      const isVideo = pathname.includes('/videos/') || pathname.startsWith('/share/v/');
+      const isPhpVideo = pathname.startsWith('/video.php') && parsed.searchParams.has('v');
+
+      if (!isFbWatchHost && !isReel && !isWatch && !isVideo && !isPhpVideo && pathname.length <= 1) {
+        return {
+          isValid: false,
+          platform: 'facebook',
+          errorMessage: 'Please provide a link to a specific Facebook Video, Reel, or Watch link (e.g. facebook.com/reel/...).',
+        };
+      }
+
+      // Strip Facebook tracking parameters
+      const trackingParams = ['ref', 'sfnsn', 'mibextid', 'fbclid', 'utm_source', 'utm_medium', 'utm_campaign', 'gclid'];
+      trackingParams.forEach((p) => parsed.searchParams.delete(p));
+
       return {
-        isValid: false,
+        isValid: true,
+        normalizedUrl: parsed.toString(),
+        extractedUrlsCount: 1,
         platform: 'facebook',
-        errorMessage: 'Facebook support is coming in an upcoming update! Currently YouTube, TikTok, and Instagram are supported.',
+        isShort: isReel,
       };
     }
 
@@ -250,7 +280,7 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
 
     return {
       isValid: false,
-      errorMessage: 'Unsupported domain. Please provide a valid YouTube, TikTok, or Instagram link.',
+      errorMessage: 'Unsupported domain. Please provide a valid YouTube, TikTok, Instagram, or Facebook link.',
     };
   } catch {
     return { isValid: false, errorMessage: 'The link is malformed or invalid.' };

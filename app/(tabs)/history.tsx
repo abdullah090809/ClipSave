@@ -372,7 +372,7 @@ export default function HistoryScreen() {
                 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel={`Saved video: ${item.title || (item.platform === 'youtube' ? 'YouTube video' : item.platform === 'instagram' ? 'Instagram video' : 'TikTok video')}`}
+              accessibilityLabel={`Saved video: ${item.title || (item.platform === 'youtube' ? 'YouTube video' : item.platform === 'instagram' ? 'Instagram video' : item.platform === 'facebook' ? 'Facebook video' : 'TikTok video')}`}
             >
               {/* Thumbnail with duration badge and play icon overlay */}
               <View style={styles.thumbnailWrapper}>
@@ -414,6 +414,16 @@ export default function HistoryScreen() {
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}>
                       <Ionicons name="logo-youtube" size={10} color="#EF4444" />
                       <Text style={[typography.micro, { color: '#EF4444', fontSize: 9, marginLeft: 2 }]}>YouTube</Text>
+                    </View>
+                  ) : item.platform === 'instagram' || item.sourceUrl?.includes('instagram.com') || item.sourceUrl?.includes('instagr.am') ? (
+                    <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(225, 48, 108, 0.12)', borderColor: '#E1306C' }]}>
+                      <Ionicons name="logo-instagram" size={10} color="#E1306C" />
+                      <Text style={[typography.micro, { color: '#E1306C', fontSize: 9, marginLeft: 2 }]}>Instagram</Text>
+                    </View>
+                  ) : item.platform === 'facebook' || item.sourceUrl?.includes('facebook.com') || item.sourceUrl?.includes('fb.watch') || item.sourceUrl?.includes('fb.com') ? (
+                    <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(24, 119, 242, 0.12)', borderColor: '#1877F2' }]}>
+                      <Ionicons name="logo-facebook" size={10} color="#1877F2" />
+                      <Text style={[typography.micro, { color: '#1877F2', fontSize: 9, marginLeft: 2 }]}>Facebook</Text>
                     </View>
                   ) : (
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
