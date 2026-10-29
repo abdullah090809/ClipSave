@@ -133,9 +133,11 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
   let candidate = trimmed;
   if (matches && matches.length === 1) {
     candidate = matches[0]!;
+    // Clean any trailing punctuation attached from surrounding sentence (e.g. . , ! ? ) ] >)
+    candidate = candidate.replace(/[.,!?;:)>\]]+$/, '');
   } else if (!candidate.startsWith('http://') && !candidate.startsWith('https://')) {
     // If user entered without protocol, test if adding https:// makes a valid URL
-    candidate = `https://${candidate}`;
+    candidate = `https://${candidate.replace(/[.,!?;:)>\]]+$/, '')}`;
   }
 
   try {

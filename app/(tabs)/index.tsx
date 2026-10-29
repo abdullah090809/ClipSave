@@ -95,13 +95,18 @@ export default function HomeScreen() {
   useEffect(() => {
     checkClipboard();
 
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active') {
         checkClipboard();
+        // Modern Android 12-14 privacy delay: re-check once window focus settles
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(checkClipboard, 350);
       }
     });
 
     return () => {
+      if (retryTimer) clearTimeout(retryTimer);
       subscription.remove();
     };
   }, [checkClipboard]);
@@ -110,6 +115,8 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       checkClipboard();
+      const timer = setTimeout(checkClipboard, 350);
+      return () => clearTimeout(timer);
     }, [checkClipboard])
   );
 
@@ -360,7 +367,7 @@ export default function HomeScreen() {
           </View>
 
           {/* 3. CLIPBOARD PROMPT CHIP (IF DETECTED) */}
-          {clipboardDetectedUrl && !inputUrl && (
+          {clipboardDetectedUrl && clipboardDetectedUrl !== inputUrl.trim() && (
             <Pressable
               onPress={() => {
                 setInputUrl(clipboardDetectedUrl);
@@ -394,7 +401,9 @@ export default function HomeScreen() {
                 style={[typography.labelMedium, { color: colors.primary, flex: 1 }]}
                 numberOfLines={1}
               >
-                {clipboardPlatform} link detected: tap to paste
+                {inputUrl.trim()
+                  ? `New ${clipboardPlatform} link detected: tap to replace`
+                  : `${clipboardPlatform} link detected: tap to paste`}
               </Text>
               <Ionicons name="arrow-forward" size={14} color={colors.primary} />
             </Pressable>
