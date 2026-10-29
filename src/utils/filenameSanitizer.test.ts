@@ -66,4 +66,13 @@ describe('sanitizeFilename', () => {
     expect(output).not.toContain('=');
     expect(output.endsWith('.mp4')).toBe(true);
   });
+
+  test('supports mp3 and audio extensions for audio downloads', () => {
+    const input = 'Great Song Track';
+    const outputMp3 = sanitizeFilename(input, 'ClipSave_audio', 'mp3');
+    expect(outputMp3).toBe('Great_Song_Track.mp3');
+
+    const outputM4a = sanitizeFilename(input, 'ClipSave_audio', 'm4a');
+    expect(outputM4a).toBe('Great_Song_Track.m4a');
+  });
 });

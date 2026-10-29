@@ -40,7 +40,11 @@ export async function processNextQueuedJob(): Promise<void> {
     return;
   }
 
-  const safeName = sanitizeFilename(nextJob.media.title);
+  const safeName = sanitizeFilename(
+    nextJob.media.title,
+    `ClipSave_${nextJob.media.platform || 'media'}`,
+    nextJob.media.format || 'mp4'
+  );
   const tempPath = nextJob.tempFilePath || `${DOWNLOADS_TEMP_DIR}${nextJob.id}.tmp`;
 
   updateJobInQueue(nextJob.id, {
@@ -61,7 +65,11 @@ export async function startDownload(media: ResolvedMedia): Promise<string> {
   const isSlotAvailable = activeDownloadSessions.size < maxConcurrency;
 
   const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const safeName = sanitizeFilename(media.title);
+  const safeName = sanitizeFilename(
+    media.title,
+    `ClipSave_${media.platform || 'media'}`,
+    media.format || 'mp4'
+  );
   const tempPath = `${DOWNLOADS_TEMP_DIR}${jobId}.tmp`;
 
   const newJob: DownloadJob = {
@@ -119,6 +127,9 @@ async function finalizeSuccessfulDownload(
     await addHistoryItem({
       id: `hist_${jobId}`,
       sourceUrl: currentJob.sourceUrl,
+      platform: (currentJob.media.platform as any) || 'generic',
+      format: currentJob.media.format,
+      quality: currentJob.media.quality,
       title: currentJob.media.title,
       author: currentJob.media.author,
       thumbnailUrl: currentJob.media.thumbnailUrl ?? undefined,

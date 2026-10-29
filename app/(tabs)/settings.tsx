@@ -328,10 +328,60 @@ export default function SettingsScreen() {
         {/* Section 2: Downloads */}
         <AccordionRow
           title="Downloads"
-          subtitle="Connection, gallery & concurrency"
+          subtitle="Quality, connection & storage"
           icon="download-outline"
         >
           <View style={styles.sectionBody}>
+            {/* Preferred Quality Selector */}
+            <View style={styles.settingTextCol}>
+              <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]}>
+                Preferred Download Quality
+              </Text>
+              <Text style={[typography.caption, { color: colors.textMuted }]}>
+                Default format selected when resolving video links
+              </Text>
+            </View>
+            <View style={styles.qualityPillRow}>
+              {[
+                { id: '1080p', label: '1080p HD' },
+                { id: '720p', label: '720p HD' },
+                { id: '360p', label: '360p SD' },
+                { id: 'audio', label: 'Audio (MP3)' },
+              ].map((q) => {
+                const isSelected = (settings.defaultQuality || '1080p') === q.id;
+                return (
+                  <Pressable
+                    key={q.id}
+                    onPress={() => updateSetting({ defaultQuality: q.id })}
+                    style={[
+                      styles.qualityPill,
+                      {
+                        backgroundColor: isSelected ? colors.primary : colors.surfaceContainerHigh,
+                        borderColor: isSelected ? colors.primary : colors.outlineVariant,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`Preferred quality: ${q.label}`}
+                  >
+                    <Text
+                      style={[
+                        typography.labelMedium,
+                        {
+                          color: isSelected ? colors.onPrimary : colors.textPrimary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {q.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={[styles.rowDivider, { backgroundColor: colors.outlineVariant }]} />
+
             {/* Wi-Fi Only Switch */}
             <View style={styles.settingRow}>
               <View style={styles.settingTextCol}>
@@ -716,5 +766,18 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     minHeight: 42,
     marginTop: spacing.md,
+  },
+  qualityPillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  qualityPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
   },
 });

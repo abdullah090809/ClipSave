@@ -1,22 +1,46 @@
-import { ResolvedMedia } from '../types';
+import { ResolvedMedia, MediaFormatOption } from '../types';
+import { detectPlatform } from '../utils/urlValidator';
 
 export const MOCK_RESOLVED_MEDIA: ResolvedMedia = {
   id: 'mock_734891238910',
   sourceUrl: 'https://www.tiktok.com/@creator/video/734891238910',
+  platform: 'tiktok',
   title: 'Sample Creative Public Video (Mock Development Data)',
   author: 'CreativeCreator',
   authorUsername: '@creativecreator',
   durationSeconds: 24,
   thumbnailUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400',
-  // Small sample open-source public MP4 video for local development testing
   mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
   estimatedSizeBytes: 15420390,
   format: 'mp4',
+  quality: '1080p',
+  availableFormats: [
+    {
+      id: '1080p',
+      label: '1080p HD (No Watermark)',
+      quality: '1080p',
+      extension: 'mp4',
+      isVideo: true,
+      mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      estimatedSizeBytes: 15420390,
+      note: 'Watermark Free',
+    },
+    {
+      id: 'audio',
+      label: 'Audio Only (MP3)',
+      quality: 'audio',
+      extension: 'mp3',
+      isVideo: false,
+      mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      estimatedSizeBytes: 2450000,
+      note: 'Original Audio',
+    },
+  ],
   expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
   isCleanSourceVerified: true,
 };
 
-export async function resolveMockTikTokUrl(url: string): Promise<ResolvedMedia> {
+export async function resolveMockMediaUrl(url: string): Promise<ResolvedMedia> {
   // Simulate brief local delay
   await new Promise((resolve) => setTimeout(resolve, 600));
 
@@ -25,7 +49,75 @@ export async function resolveMockTikTokUrl(url: string): Promise<ResolvedMedia> 
   }
 
   if (url.includes('deleted') || url.includes('404')) {
-    throw new Error('The requested video is unavailable or has been removed from TikTok.');
+    throw new Error('The requested video is unavailable or has been removed.');
+  }
+
+  const { platform, isShort } = detectPlatform(url);
+
+  if (platform === 'youtube') {
+    const formats: MediaFormatOption[] = [
+      {
+        id: '1080p',
+        label: '1080p Full HD',
+        quality: '1080p',
+        extension: 'mp4',
+        isVideo: true,
+        mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+        estimatedSizeBytes: isShort ? 14200000 : 45200000,
+        note: 'Full HD',
+      },
+      {
+        id: '720p',
+        label: '720p HD',
+        quality: '720p',
+        extension: 'mp4',
+        isVideo: true,
+        mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+        estimatedSizeBytes: isShort ? 8100000 : 22100000,
+        note: 'HD',
+      },
+      {
+        id: '360p',
+        label: '360p SD',
+        quality: '360p',
+        extension: 'mp4',
+        isVideo: true,
+        mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+        estimatedSizeBytes: isShort ? 3200000 : 8400000,
+        note: 'Data Saver',
+      },
+      {
+        id: 'audio',
+        label: 'Audio Only (MP3)',
+        quality: 'audio',
+        extension: 'mp3',
+        isVideo: false,
+        mediaUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+        estimatedSizeBytes: isShort ? 1200000 : 3800000,
+        note: 'High Quality MP3',
+      },
+    ];
+
+    return {
+      id: `mock_yt_${Date.now()}`,
+      sourceUrl: url,
+      platform: 'youtube',
+      title: isShort
+        ? `Amazing YouTube Short #viral - ${new Date().toLocaleTimeString()} (Dev Mock)`
+        : `YouTube Video Feature - ${new Date().toLocaleTimeString()} (Dev Mock)`,
+      author: 'YouTubeCreator',
+      authorUsername: '@youtubecreator',
+      durationSeconds: isShort ? 45 : 180,
+      thumbnailUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400',
+      mediaUrl: formats[0]!.mediaUrl,
+      directMediaUrl: formats[0]!.mediaUrl,
+      estimatedSizeBytes: formats[0]!.estimatedSizeBytes,
+      format: 'mp4',
+      quality: '1080p',
+      availableFormats: formats,
+      expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      isCleanSourceVerified: true,
+    };
   }
 
   return {
@@ -34,3 +126,5 @@ export async function resolveMockTikTokUrl(url: string): Promise<ResolvedMedia> 
     title: `ClipSave Test Media - ${new Date().toLocaleTimeString()} (Dev Mock)`,
   };
 }
+
+export const resolveMockTikTokUrl = resolveMockMediaUrl;

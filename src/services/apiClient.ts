@@ -232,6 +232,7 @@ export async function resolveTikTokUrl(
     return {
       id: String(data.id || Date.now()),
       sourceUrl: url,
+      platform: data.platform || (url.includes('youtube') || url.includes('youtu.be') ? 'youtube' : 'tiktok'),
       title: data.title || 'Untitled Video',
       author: data.author || 'Unknown Creator',
       authorUsername: data.authorUsername,
@@ -242,6 +243,8 @@ export async function resolveTikTokUrl(
       httpHeaders: data.httpHeaders,
       estimatedSizeBytes: data.estimatedSizeBytes,
       format: data.format || 'mp4',
+      quality: data.quality || '1080p',
+      availableFormats: data.availableFormats || [],
       expiresAt: data.expiresAt,
       isCleanSourceVerified: !!data.isCleanSourceVerified,
     };
@@ -264,3 +267,6 @@ export async function resolveTikTokUrl(
     } as ResolveError;
   }
 }
+
+export const resolveMediaUrl = resolveTikTokUrl;
+

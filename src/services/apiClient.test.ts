@@ -33,4 +33,30 @@ describe('apiClient', () => {
       resolveTikTokUrl('https://www.tiktok.com/@user/video/deleted_404')
     ).rejects.toThrow('unavailable or has been removed');
   });
+
+  test('resolves YouTube video with multiple quality options and audio', async () => {
+    const media = await resolveTikTokUrl('https://www.youtube.com/watch?v=aqz-KE-bpKQ');
+    expect(media).toBeDefined();
+    expect(media.platform).toBe('youtube');
+    expect(media.availableFormats).toBeDefined();
+    expect(media.availableFormats!.length).toBeGreaterThanOrEqual(3);
+
+    const qualityIds = media.availableFormats!.map((f) => f.id);
+    expect(qualityIds).toContain('1080p');
+    expect(qualityIds).toContain('720p');
+    expect(qualityIds).toContain('audio');
+
+    const audioFmt = media.availableFormats!.find((f) => f.id === 'audio');
+    expect(audioFmt).toBeDefined();
+    expect(audioFmt!.isVideo).toBe(false);
+    expect(audioFmt!.extension).toBe('mp3');
+  });
+
+  test('resolves YouTube Shorts with correct short format indicator', async () => {
+    const media = await resolveTikTokUrl('https://www.youtube.com/shorts/dQw4w9WgXcQ');
+    expect(media).toBeDefined();
+    expect(media.platform).toBe('youtube');
+    expect(media.title).toContain('Short');
+    expect(media.availableFormats).toBeDefined();
+  });
 });

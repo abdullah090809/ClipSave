@@ -21,6 +21,7 @@ export const defaultSettings: AppSettings = {
   palette: 'warm_light',
   accentColor: 'coral',
   startupAnimation: 'standard',
+  defaultQuality: '1080p',
   autoDownloadOnResolve: false,
   saveToGallery: true,
   wifiOnly: false,

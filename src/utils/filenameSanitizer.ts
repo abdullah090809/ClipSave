@@ -7,9 +7,14 @@ const RESERVED_NAMES = new Set([
   'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
 ]);
 
-export function sanitizeFilename(title: string | undefined, defaultPrefix: string = 'ClipSave_video'): string {
+export function sanitizeFilename(
+  title: string | undefined,
+  defaultPrefix: string = 'ClipSave_video',
+  extension: string = 'mp4'
+): string {
+  const ext = (extension || 'mp4').toLowerCase().replace(/^\./, '');
   if (!title || typeof title !== 'string') {
-    return `${defaultPrefix}_${Date.now()}.mp4`;
+    return `${defaultPrefix}_${Date.now()}.${ext}`;
   }
 
   // Remove control characters (\x00-\x1f, \x7f)
@@ -43,9 +48,9 @@ export function sanitizeFilename(title: string | undefined, defaultPrefix: strin
     clean = clean.slice(0, MAX_FILENAME_LENGTH).trim().replace(/^[\s._-]+|[\s._-]+$/g, '');
   }
 
-  // Ensure .mp4 extension
-  if (!clean.toLowerCase().endsWith('.mp4')) {
-    clean = `${clean}.mp4`;
+  // Ensure specified extension (e.g. .mp4, .mp3, .m4a)
+  if (!clean.toLowerCase().endsWith(`.${ext}`)) {
+    clean = `${clean}.${ext}`;
   }
 
   return clean;

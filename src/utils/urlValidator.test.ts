@@ -1,4 +1,8 @@
-import { extractAndValidateTikTokUrl } from './urlValidator';
+import {
+  extractAndValidateTikTokUrl,
+  validateMediaUrl,
+  detectPlatform,
+} from './urlValidator';
 
 describe('extractAndValidateTikTokUrl', () => {
   test('valid standard tiktok video url', () => {
@@ -78,5 +82,103 @@ describe('extractAndValidateTikTokUrl', () => {
     const input = 'https://www.tiktok.com/@user/video/123\x00\x08';
     const result = extractAndValidateTikTokUrl(input);
     expect(result.isValid).toBe(false);
+  });
+});
+
+describe('detectPlatform', () => {
+  test('detects TikTok links', () => {
+    expect(detectPlatform('https://www.tiktok.com/@user/video/123').platform).toBe('tiktok');
+    expect(detectPlatform('vm.tiktok.com/abc123/').platform).toBe('tiktok');
+  });
+
+  test('detects YouTube regular video links', () => {
+    const res = detectPlatform('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(res.platform).toBe('youtube');
+    expect(res.isShort).toBe(false);
+  });
+
+  test('detects YouTube Shorts links', () => {
+    const res = detectPlatform('https://www.youtube.com/shorts/50_4S4kO_qA');
+    expect(res.platform).toBe('youtube');
+    expect(res.isShort).toBe(true);
+  });
+
+  test('detects youtu.be short links', () => {
+    const res = detectPlatform('https://youtu.be/dQw4w9WgXcQ');
+    expect(res.platform).toBe('youtube');
+  });
+
+  test('detects Instagram links (future)', () => {
+    expect(detectPlatform('https://www.instagram.com/reel/C1234567/').platform).toBe('instagram');
+  });
+
+  test('detects Facebook links (future)', () => {
+    expect(detectPlatform('https://www.facebook.com/watch/?v=123456').platform).toBe('facebook');
+    expect(detectPlatform('https://fb.watch/abc123/').platform).toBe('facebook');
+  });
+
+  test('falls back to generic for unknown text', () => {
+    expect(detectPlatform('hello world').platform).toBe('generic');
+    expect(detectPlatform('').platform).toBe('generic');
+  });
+});
+
+describe('validateMediaUrl', () => {
+  test('validates YouTube watch URL and strips tracking query parameters', () => {
+    const input = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ&feature=share&si=12345';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(true);
+    expect(result.platform).toBe('youtube');
+    expect(result.isShort).toBe(false);
+    expect(result.normalizedUrl).toContain('v=aqz-KE-bpKQ');
+    expect(result.normalizedUrl).not.toContain('feature=share');
+    expect(result.normalizedUrl).not.toContain('si=12345');
+  });
+
+  test('validates YouTube Shorts URL', () => {
+    const input = 'https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(true);
+    expect(result.platform).toBe('youtube');
+    expect(result.isShort).toBe(true);
+    expect(result.normalizedUrl).toContain('/shorts/dQw4w9WgXcQ');
+  });
+
+  test('validates youtu.be short URL', () => {
+    const input = 'https://youtu.be/dQw4w9WgXcQ';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(true);
+    expect(result.platform).toBe('youtube');
+    expect(result.normalizedUrl).toContain('youtu.be/dQw4w9WgXcQ');
+  });
+
+  test('rejects YouTube URL missing specific video reference', () => {
+    const input = 'https://www.youtube.com/';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(false);
+    expect(result.errorMessage).toContain('Please provide a link to a specific YouTube video');
+  });
+
+  test('validates TikTok URL', () => {
+    const input = 'https://www.tiktok.com/@user/video/734891238910';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(true);
+    expect(result.platform).toBe('tiktok');
+  });
+
+  test('friendly message for Instagram links (upcoming)', () => {
+    const input = 'https://www.instagram.com/reel/C1234567/';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(false);
+    expect(result.platform).toBe('instagram');
+    expect(result.errorMessage).toContain('Instagram support is coming');
+  });
+
+  test('friendly message for Facebook links (upcoming)', () => {
+    const input = 'https://www.facebook.com/watch/?v=123456';
+    const result = validateMediaUrl(input);
+    expect(result.isValid).toBe(false);
+    expect(result.platform).toBe('facebook');
+    expect(result.errorMessage).toContain('Facebook support is coming');
   });
 });

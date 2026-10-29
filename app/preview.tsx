@@ -85,7 +85,7 @@ export default function PreviewScreen() {
               ]}
               numberOfLines={3}
             >
-              {params.title || 'ClipSave TikTok Video'}
+              {params.title || 'ClipSave Video'}
             </Text>
             <View style={styles.savedBadgeRow}>
               <Ionicons name="checkmark-circle" size={16} color={colors.success} />

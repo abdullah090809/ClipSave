@@ -384,11 +384,19 @@ export default function HistoryScreen() {
                   />
                 ) : (
                   <View style={[styles.thumbnailPlaceholder, { backgroundColor: colors.surfaceContainerHigh }]}>
-                    <Ionicons name="film-outline" size={24} color={colors.primary} />
+                    <Ionicons
+                      name={item.format === 'mp3' || item.format === 'm4a' ? 'musical-notes' : 'film-outline'}
+                      size={24}
+                      color={colors.primary}
+                    />
                   </View>
                 )}
                 <View style={styles.playOverlay}>
-                  <Ionicons name="play" size={12} color="#FFFFFF" />
+                  <Ionicons
+                    name={item.format === 'mp3' || item.format === 'm4a' ? 'musical-notes' : 'play'}
+                    size={12}
+                    color="#FFFFFF"
+                  />
                 </View>
                 {item.durationSeconds ? (
                   <View style={styles.durationBadge}>
@@ -401,11 +409,33 @@ export default function HistoryScreen() {
 
               {/* Title & Metadata */}
               <View style={styles.metaCol}>
+                <View style={styles.historyPlatformRow}>
+                  {item.platform === 'youtube' || item.sourceUrl?.includes('youtu') ? (
+                    <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}>
+                      <Ionicons name="logo-youtube" size={10} color="#EF4444" />
+                      <Text style={[typography.micro, { color: '#EF4444', fontSize: 9, marginLeft: 2 }]}>YouTube</Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
+                      <Ionicons name="musical-notes" size={10} color="#06B6D4" />
+                      <Text style={[typography.micro, { color: '#06B6D4', fontSize: 9, marginLeft: 2 }]}>TikTok</Text>
+                    </View>
+                  )}
+                  {item.format === 'mp3' || item.format === 'm4a' ? (
+                    <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(168, 85, 247, 0.12)', borderColor: '#A855F7' }]}>
+                      <Text style={[typography.micro, { color: '#A855F7', fontSize: 9 }]}>MP3 Audio</Text>
+                    </View>
+                  ) : item.quality ? (
+                    <View style={[styles.platformChipSmall, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant }]}>
+                      <Text style={[typography.micro, { color: colors.textSecondary, fontSize: 9 }]}>{item.quality}</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <Text
                   style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}
                   numberOfLines={2}
                 >
-                  {item.title || 'TikTok Video'}
+                  {item.title || 'Untitled Media'}
                 </Text>
                 <Text
                   style={[typography.caption, { color: colors.textSecondary, marginTop: 2 }]}
@@ -558,6 +588,20 @@ const styles = StyleSheet.create({
   },
   metaCol: {
     flex: 1,
+  },
+  historyPlatformRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  platformChipSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
   },
   dotsButton: {
     padding: spacing.xs,
