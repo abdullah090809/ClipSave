@@ -90,6 +90,12 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
             "YoutubeShorts",
             "generic",
         ],
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web"],
+                "player_skip": ["configs"],
+            }
+        },
         "socket_timeout": 15,
         "js_runtimes": {"node": {"path": "node"}},
     }

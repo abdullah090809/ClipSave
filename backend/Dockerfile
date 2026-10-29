@@ -19,9 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN groupadd -g 10001 appuser && \
-    useradd -u 10001 -g appuser -s /sbin/nologin -d /app appuser
+# Create non-root user (UID 1000 is standard for Hugging Face Spaces and container sandboxes)
+RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
 
@@ -34,11 +33,12 @@ ENV PYTHONPATH=/app
 COPY --chown=appuser:appuser app /app/app
 
 # Drop privileges
-USER 10001:10001
+USER 1000
 
-EXPOSE 8080
+ENV PORT=7860
+EXPOSE 7860 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://127.0.0.1:8080/healthz || exit 1
+    CMD curl -f http://127.0.0.1:${PORT:-7860}/healthz || curl -f http://127.0.0.1:8080/healthz || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 2 --proxy-headers --forwarded-allow-ips '*'"]
