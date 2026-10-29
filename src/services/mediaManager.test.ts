@@ -250,6 +250,7 @@ describe('mediaManager', () => {
 
   test('UT-MM-13: saveOrExportToGallery falls back to Sharing.shareAsync when media library throws', async () => {
     (MediaLibrary.requestPermissionsAsync as jest.Mock).mockRejectedValueOnce(new Error('Permission denied'));
+    (MediaLibrary.createAssetAsync as jest.Mock).mockRejectedValueOnce(new Error('Asset creation failed'));
     (MediaLibrary.saveToLibraryAsync as jest.Mock).mockRejectedValueOnce(new Error('Save failed'));
 
     const success = await saveOrExportToGallery('file:///documents/video.mp4');

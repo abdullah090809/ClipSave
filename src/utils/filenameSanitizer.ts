@@ -21,9 +21,8 @@ export function sanitizeFilename(title: string | undefined, defaultPrefix: strin
   // Remove path traversal and illegal filesystem / URI characters: \ / : * ? " < > | % & { } ~ ` ! @ $ = + ; , ^
   clean = clean.replace(/[\\/:*?"<>|%&{}~`!@$=+;,^]/g, '_');
 
-  // Replace multiple underscores or spaces with a single space/underscore
-  clean = clean.replace(/_{2,}/g, '_');
-  clean = clean.replace(/\s{2,}/g, ' ').trim();
+  // Replace spaces and multiple underscores with a single underscore to guarantee valid URL/MIME parsing on Android
+  clean = clean.replace(/[\s_]+/g, '_');
 
   // Strip leading and trailing periods, spaces, underscores, and dashes
   clean = clean.replace(/^[\s._-]+|[\s._-]+$/g, '');

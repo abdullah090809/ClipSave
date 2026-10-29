@@ -4,7 +4,7 @@ describe('sanitizeFilename', () => {
   test('sanitizes standard title with mp4 extension', () => {
     const input = 'My Fun Video';
     const output = sanitizeFilename(input);
-    expect(output).toBe('My Fun Video.mp4');
+    expect(output).toBe('My_Fun_Video.mp4');
   });
 
   test('removes illegal path traversal characters (/, \\, :, *, ?, ", <, >, |)', () => {
@@ -27,6 +27,7 @@ describe('sanitizeFilename', () => {
     const output = sanitizeFilename(input);
     expect(output).toContain('🔥');
     expect(output).toContain('日本語');
+    expect(output).not.toContain(' ');
     expect(output.endsWith('.mp4')).toBe(true);
   });
 
@@ -51,7 +52,7 @@ describe('sanitizeFilename', () => {
     const input = '#datealive #animeedit #margakagenou #creatoranimeone #fyp';
     const output = sanitizeFilename(input);
     expect(output).not.toContain('#');
-    expect(output).toBe('datealive animeedit margakagenou creatoranimeone fyp.mp4');
+    expect(output).toBe('datealive_animeedit_margakagenou_creatoranimeone_fyp.mp4');
   });
 
   test('strips URI reserved and special characters from filename', () => {

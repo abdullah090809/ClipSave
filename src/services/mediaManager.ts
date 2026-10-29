@@ -359,20 +359,28 @@ export async function saveOrExportToGallery(fileUri: string): Promise<boolean> {
       targetUri = `file://${targetUri}`;
     }
 
-    let saved = false;
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (perm?.granted || perm?.status === 'granted') {
-        const asset = await MediaLibrary.createAssetAsync(targetUri);
-        if (asset) {
-          saved = true;
-        }
+      const perm = await MediaLibrary.getPermissionsAsync();
+      if (!perm?.granted && perm?.status !== 'granted') {
+        await MediaLibrary.requestPermissionsAsync();
       }
     } catch {
+      // Best-effort permission check
+    }
+
+    let saved = false;
+    try {
+      const asset = await MediaLibrary.createAssetAsync(targetUri);
+      if (asset) {
+        saved = true;
+      }
+    } catch (assetErr) {
+      console.warn('saveOrExportToGallery createAssetAsync failed, trying saveToLibraryAsync:', assetErr);
       try {
         await MediaLibrary.saveToLibraryAsync(targetUri);
         saved = true;
-      } catch {
+      } catch (saveErr) {
+        console.warn('saveOrExportToGallery saveToLibraryAsync failed:', saveErr);
         saved = false;
       }
     }
