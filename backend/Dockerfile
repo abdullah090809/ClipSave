@@ -35,10 +35,10 @@ COPY --chown=appuser:appuser app /app/app
 # Drop privileges
 USER 1000
 
-ENV PORT=7860
-EXPOSE 7860 8080
+ENV PORT=8080
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://127.0.0.1:${PORT:-7860}/healthz || curl -f http://127.0.0.1:8080/healthz || exit 1
+    CMD curl -f http://127.0.0.1:${PORT:-8080}/healthz || exit 1
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1 --proxy-headers"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --proxy-headers --forwarded-allow-ips \"*\""]

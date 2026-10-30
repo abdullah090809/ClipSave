@@ -58,3 +58,28 @@ npx expo prebuild --platform android
 # 2. Compile and run development build
 npx expo run:android
 ```
+
+---
+
+## 4. Production SnapDeploy Cloud Deployment
+
+ClipSave's Python FastAPI backend is configured for cloud deployment on **[SnapDeploy Containers](https://snapdeploy.dev/containers)**.
+
+### Target Infrastructure Specifications
+- **Dashboard:** `https://snapdeploy.dev/containers`
+- **Subdomain:** `clipsave-96518`
+- **Public URL:** `https://clipsave-96518.containers.snapdeploy.app`
+- **Wake API Endpoint:** `POST https://snapdeploy.dev/api/public/wake/clipsave-96518`
+- **Container Port:** `8080` (Configured via `ENV PORT=8080` and `EXPOSE 8080`)
+- **Health Check Probe:** `GET /healthz`
+
+### Deployment Characteristics & Behaviors
+1. **Sleep / Wake Cycle (Free Tier):**
+   - After ~15 minutes of inactivity, SnapDeploy puts the container to sleep to conserve resources.
+   - When dormant, requests return HTTP `503` with header `X-Wake-Page: true`.
+   - The ClipSave mobile client (`src/services/apiClient.ts`) detects this and automatically triggers container boot via `wakeBackendContainer()` upon app start and link resolution.
+2. **Single-Worker Execution:**
+   - The container runs `uvicorn` with `--workers 1` to ensure in-memory stream sessions (`_stream_sessions`) and IP sliding-window rate limit counters remain 100% consistent.
+3. **Deployment Trigger:**
+   - Pushing commits to the connected repository (`git push origin main`) triggers SnapDeploy's webhook/poll build cycle.
+
