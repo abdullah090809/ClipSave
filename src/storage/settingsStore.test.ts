@@ -43,6 +43,16 @@ describe('settingsStore', () => {
     expect(settings.backendBaseUrl).toBe(PRODUCTION_BACKEND_URL);
   });
 
+  test('UT-SET-03C: migrates stored ephemeral ngrok URL to production deployed URL', async () => {
+    await AsyncStorage.setItem(
+      '@clipsave_settings_v1',
+      JSON.stringify({ ...defaultSettings, backendBaseUrl: 'https://expired-tunnel-123.ngrok-free.app' })
+    );
+
+    const settings = await getSettings();
+    expect(settings.backendBaseUrl).toBe(PRODUCTION_BACKEND_URL);
+  });
+
   test('UT-SET-04: enableLaunchAnimation defaults to true and persists updates', async () => {
     const initial = await getSettings();
     expect(initial.enableLaunchAnimation).toBe(true);

@@ -7,6 +7,7 @@ import {
   Alert,
   Switch,
   Pressable,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,6 +20,7 @@ import {
   saveSettings,
   getCachedSettings,
   defaultSettings,
+  SNAPDEPLOY_BACKEND_URL,
 } from '../../src/storage/settingsStore';
 import { cleanOrphanedTempFiles } from '../../src/services/mediaManager';
 import { clearHistoryAndFiles, getHistory } from '../../src/storage/historyStore';
@@ -46,6 +48,35 @@ export default function SettingsScreen() {
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
   const [clearing, setClearing] = useState(false);
   const [showTopMenu, setShowTopMenu] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [customUrlInput, setCustomUrlInput] = useState('');
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    try {
+      const url = settings.backendBaseUrl.replace(/\/$/, '') + '/healthz';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (res.status === 200) {
+        Alert.alert('Connection Successful', `Backend at ${settings.backendBaseUrl} is online and operational.`);
+      } else if (res.status === 503) {
+        Alert.alert('Server Sleeping', `The server at ${settings.backendBaseUrl} is dormant (503). ClipSave will send an automatic wake signal when resolving.`);
+      } else {
+        Alert.alert('Server Returned Error', `Status: ${res.status} (${res.statusText})`);
+      }
+    } catch (err: any) {
+      Alert.alert('Connection Result', `Could not connect to ${settings.backendBaseUrl}.\n\nError: ${err?.message || 'Connection timeout'}`);
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   useEffect(() => {
     getSettings().then((s) => setSettings(s)).catch(() => {});
@@ -526,7 +557,160 @@ export default function SettingsScreen() {
           </View>
         </AccordionRow>
 
-        {/* Section 4: About */}
+        {/* Section 4: Network & Resolver */}
+        <AccordionRow
+          title="Network & Resolver"
+          subtitle={settings.useMockResolver ? 'Offline Mock Resolver active' : 'Connected to ClipSave Backend'}
+          icon="globe-outline"
+        >
+          <View style={styles.sectionBody}>
+            {/* Mock Mode Switch */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextCol}>
+                <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600' }]}>
+                  Offline Mock Resolver
+                </Text>
+                <Text style={[typography.caption, { color: colors.textMuted }]}>
+                  Resolve sample videos offline for local testing without calling the backend
+                </Text>
+              </View>
+              <Switch
+                value={settings.useMockResolver}
+                onValueChange={(val) => updateSetting({ useMockResolver: val })}
+                trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            <View style={[styles.rowDivider, { backgroundColor: colors.outlineVariant }]} />
+
+            {/* Backend URL Display & Edit */}
+            <View style={{ paddingVertical: spacing.xs }}>
+              <Text style={[typography.labelMedium, { color: colors.textSecondary, marginBottom: 4 }]}>
+                Backend Resolver URL
+              </Text>
+              <Text
+                style={[
+                  typography.caption,
+                  { color: colors.textPrimary, fontFamily: 'monospace', paddingVertical: 4 },
+                ]}
+                numberOfLines={1}
+                selectable
+              >
+                {settings.backendBaseUrl}
+              </Text>
+
+              {isEditingUrl ? (
+                <View style={{ marginTop: spacing.xs }}>
+                  <TextInput
+                    style={[
+                      typography.bodySmall,
+                      {
+                        backgroundColor: colors.inputBackground,
+                        borderColor: colors.outlineVariant,
+                        borderWidth: 1,
+                        borderRadius: borderRadius.md,
+                        paddingHorizontal: spacing.sm,
+                        paddingVertical: spacing.xs + 2,
+                        color: colors.textPrimary,
+                        marginBottom: spacing.xs,
+                      },
+                    ]}
+                    placeholder="https://your-backend-host.com"
+                    placeholderTextColor={colors.textMuted}
+                    value={customUrlInput}
+                    onChangeText={setCustomUrlInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <Pressable
+                      onPress={() => {
+                        const trimmed = customUrlInput.trim().replace(/\/$/, '');
+                        if (trimmed && (trimmed.startsWith('https://') || trimmed.startsWith('http://'))) {
+                          updateSetting({ backendBaseUrl: trimmed });
+                          setIsEditingUrl(false);
+                        } else {
+                          Alert.alert('Invalid URL', 'Please enter a valid HTTP or HTTPS endpoint URL.');
+                        }
+                      }}
+                      style={[
+                        styles.modePill,
+                        { backgroundColor: colors.primary, borderColor: colors.primary },
+                      ]}
+                    >
+                      <Text style={[typography.labelMedium, { color: colors.onPrimary }]}>Save URL</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setIsEditingUrl(false)}
+                      style={[
+                        styles.modePill,
+                        { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant },
+                      ]}
+                    >
+                      <Text style={[typography.labelMedium, { color: colors.textPrimary }]}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                  <Pressable
+                    onPress={() => {
+                      setCustomUrlInput(settings.backendBaseUrl);
+                      setIsEditingUrl(true);
+                    }}
+                    style={[
+                      styles.modePill,
+                      { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant },
+                    ]}
+                  >
+                    <Ionicons name="pencil-outline" size={14} color={colors.textPrimary} style={{ marginRight: 4 }} />
+                    <Text style={[typography.labelMedium, { color: colors.textPrimary }]}>Edit URL</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      updateSetting({ backendBaseUrl: SNAPDEPLOY_BACKEND_URL });
+                      Alert.alert('Reset Complete', `Backend URL reset to official deployment:\n${SNAPDEPLOY_BACKEND_URL}`);
+                    }}
+                    style={[
+                      styles.modePill,
+                      { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant },
+                    ]}
+                  >
+                    <Ionicons name="refresh-outline" size={14} color={colors.textPrimary} style={{ marginRight: 4 }} />
+                    <Text style={[typography.labelMedium, { color: colors.textPrimary }]}>Reset</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+
+            <View style={[styles.rowDivider, { backgroundColor: colors.outlineVariant }]} />
+
+            {/* Test Connection Button */}
+            <Pressable
+              onPress={handleTestConnection}
+              disabled={testingConnection}
+              android_ripple={{ color: colors.ripple }}
+              style={[
+                styles.storageActionButton,
+                {
+                  backgroundColor: colors.surfaceContainerHigh,
+                  borderColor: colors.outlineVariant,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Test connection to backend resolver"
+            >
+              <Ionicons name="wifi-outline" size={18} color={colors.primary} />
+              <Text style={[typography.labelMedium, { color: colors.textPrimary, flex: 1, marginLeft: 8 }]}>
+                {testingConnection ? 'Testing Connection...' : 'Test Backend Connection'}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+          </View>
+        </AccordionRow>
+
+        {/* Section 5: About */}
         <AccordionRow
           title="About"
           subtitle="ClipSave v1.0.0"

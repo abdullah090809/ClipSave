@@ -56,19 +56,24 @@ jobs:
       - name: 6. Generate Android Native Project (Expo Prebuild)
         run: npx expo prebuild --platform android --clean
 
-      - name: 7. Ensure Valid APK Signing
+      - name: 7. Configure APK Signing
         run: |
           cd android/app
-          # Ensure release APK is signed with a valid certificate so Android permits installation
-          if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore \
-              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass android -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          # Ensure release buildType fallback to debug signing if release signingConfig is unset
-          if grep -q "signingConfigs.release" build.gradle; then
-            sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' build.gradle || true
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "Production keystore secret detected. Decoding release keystore..."
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
+          else
+            echo "Notice: No production keystore secret (ANDROID_KEYSTORE_BASE64) detected."
+            echo "Configuring debug signing for development/testing APK artifact..."
+            if [ ! -f "debug.keystore" ]; then
+              keytool -genkey -v -keystore debug.keystore \
+                -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass android -keypass android \
+                -dname "CN=Android Debug,O=Android,C=US"
+            fi
+            if grep -q "signingConfigs.release" build.gradle; then
+              sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' build.gradle || true
+            fi
           fi
 
       - name: 8. Build APK via Gradle

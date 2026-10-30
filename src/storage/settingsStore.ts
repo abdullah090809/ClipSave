@@ -3,16 +3,15 @@ import { AppSettings } from '../types';
 
 const SETTINGS_KEY = '@clipsave_settings_v1';
 
-export const NGROK_BACKEND_URL = 'https://ef84-39-62-179-21.ngrok-free.app';
 export const SNAPDEPLOY_BACKEND_URL = 'https://clipsave-96518.containers.snapdeploy.app';
 
-// Active default endpoint for live testing (SnapDeploy preserved as fallback)
-export const PRODUCTION_BACKEND_URL = NGROK_BACKEND_URL;
+// Active default endpoint for production resolution
+export const PRODUCTION_BACKEND_URL = SNAPDEPLOY_BACKEND_URL;
 
 export function getDefaultBackendUrl(): string {
   // 1. Explicit environment variable configuration
   const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
-  if (envUrl && envUrl.trim()) {
+  if (envUrl && envUrl.trim() && !envUrl.includes('ngrok-free.app')) {
     return envUrl.trim().replace(/\/$/, '');
   }
 
@@ -62,20 +61,19 @@ export const getSettings = async (): Promise<AppSettings> => {
       accentColor: parsed.accentColor || defaultSettings.accentColor,
     };
 
-    // Self-healing migration: if the stored URL is a local development address (loopback or LAN IP),
+    // Self-healing migration: if the stored URL is a local address or an expired ngrok tunnel,
     // and the active default URL is a production HTTPS endpoint, update stored URL to the deployed backend
-    const isStoredLocal =
+    const isStoredEphemeral =
       settings.backendBaseUrl.includes('127.0.0.1') ||
       settings.backendBaseUrl.includes('localhost') ||
       settings.backendBaseUrl.includes('192.168.') ||
       settings.backendBaseUrl.includes('10.') ||
-      settings.backendBaseUrl.includes('172.');
+      settings.backendBaseUrl.includes('172.') ||
+      settings.backendBaseUrl.includes('ngrok-free.app');
 
     const isDefaultDeployed = dynamicDefaultUrl.startsWith('https://');
 
-    const isStoredSnapDeploy = settings.backendBaseUrl === SNAPDEPLOY_BACKEND_URL;
-
-    if ((isStoredLocal && isDefaultDeployed) || isStoredSnapDeploy) {
+    if (isStoredEphemeral && isDefaultDeployed) {
       settings.backendBaseUrl = dynamicDefaultUrl;
       AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)).catch(() => {});
     }
