@@ -9,12 +9,17 @@
 
 ## 1. Executive Summary
 
-A bounded local stress and concurrency evaluation was performed against the FastAPI backend using Python 3.13 and HTTPX. The server demonstrated exceptional responsiveness and strict abuse resilience:
+A bounded local concurrency and route evaluation was performed against the FastAPI backend using Python 3.13 and HTTPX in-process ASGI transport. Across **8 scenarios and 620 total requests**, the server demonstrated deterministic routing, strict rate limit enforcement, and zero 5xx errors:
 
-- **Health Probes (`/healthz`, `/readyz`):** Achieved **925 to 1,300 requests per second** with **sub-millisecond to 5.4ms median latency** (`p50`) across 1 to 10 concurrent clients.
-- **Mock Video Resolution (`/v1/resolve`):** Handled concurrent metadata synthesis at **363 to 608 req/s** with a **1.84ms to 6.74ms median latency**.
+- **Total Requests Evaluated:** 620 requests (100 + 100 + 100 + 100 + 30 + 30 + 60 + 100).
+- **Health Probes (`/healthz`, `/readyz`):** Handled **925 to 1,300 requests per second** with **0.82ms to 5.43ms median latency** (`p50`) across 1 to 10 concurrent clients.
+- **Mock Video Resolution (`/v1/resolve`):** Handled in-memory metadata synthesis at **363 to 608 req/s** with **1.84ms to 6.74ms median latency**.
 - **Rate Limit Enforcement:** Under rapid concurrent bursting (60 requests across 10 clients), the sliding window limiter cleanly permitted the first 30 requests (`200 OK`) and strictly rejected the subsequent 30 requests with `429 Too Many Requests`.
-- **Zero Server Crashes / 5xx Errors:** 0 unhandled exceptions or HTTP 500 errors occurred across all scenarios.
+- **Zero Server Crashes / 5xx Errors:** 0 unhandled exceptions or HTTP 500 errors occurred across all 620 requests.
+
+> **CRITICAL METHODOLOGY NOTE (ASGI vs. Real Network):**  
+> These benchmarks measure **in-process ASGI coroutine dispatching** using `httpx.ASGITransport` on a local machine. They test FastAPI's internal middleware, routing, Pydantic serialization, and rate-limiting logic.  
+> **They do NOT represent live production network throughput or third-party extraction speed.** Live resolution over the public internet involves external TCP/TLS roundtrips, reverse proxy hops (e.g., Cloudflare/SnapDeploy), and platform-specific video extraction which typically take 1,000ms to 4,000ms. In-process ASGI throughput must not be conflated with remote server capacity.
 
 ---
 

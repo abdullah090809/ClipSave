@@ -12,7 +12,7 @@ A comprehensive source-level and execution-level performance analysis was conduc
 
 - **Throttled State Dispatching:** Download progress updates are throttled to 120ms intervals (~8 dispatches/sec maximum), preventing the React component tree from rendering on every TCP packet.
 - **Debounced AsyncStorage Writes:** Disk persistence during downloads is throttled to once per second (1,000ms), reducing flash storage write cycles and avoiding asynchronous bridge serialization bottlenecks.
-- **Zero-Heap Media Streaming:** Downloads write directly to disk via `expo-file-system/legacy` `DownloadResumable`, keeping JavaScript heap memory usage negligible (<35MB) even when downloading 500MB+ videos.
+- **Stream-to-Disk Architecture:** Downloads stream directly to native filesystem storage via `expo-file-system/legacy` `DownloadResumable` without buffering entire video byte arrays in the JavaScript runtime heap.
 - **Asynchronous Thread Pool Offloading:** CPU-intensive yt-dlp extractions are offloaded to a bounded `ThreadPoolExecutor` wrapped with an `asyncio.Semaphore`, ensuring the FastAPI event loop never blocks on video extraction.
 
 ---

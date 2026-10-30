@@ -59,20 +59,24 @@ jobs:
       - name: 7. Configure APK Signing
         run: |
           cd android/app
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+          BUILD_TYPE="${{ inputs.build_type || 'release' }}"
+          
+          if [ "$BUILD_TYPE" = "release" ] || [ "$BUILD_TYPE" = "both" ]; then
+            if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+              echo "::error::Release build failed: Required production keystore secret (ANDROID_KEYSTORE_BASE64) is not configured."
+              echo "Debug signing cannot silently be substituted for production release APKs."
+              echo "Please configure ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD in GitHub Repository Secrets."
+              exit 1
+            fi
             echo "Production keystore secret detected. Decoding release keystore..."
             echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
           else
-            echo "Notice: No production keystore secret (ANDROID_KEYSTORE_BASE64) detected."
-            echo "Configuring debug signing for development/testing APK artifact..."
+            echo "Debug build selected. Configuring debug keystore..."
             if [ ! -f "debug.keystore" ]; then
               keytool -genkey -v -keystore debug.keystore \
                 -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
                 -storepass android -keypass android \
                 -dname "CN=Android Debug,O=Android,C=US"
-            fi
-            if grep -q "signingConfigs.release" build.gradle; then
-              sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' build.gradle || true
             fi
           fi
 

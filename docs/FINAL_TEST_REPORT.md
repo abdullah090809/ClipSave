@@ -28,7 +28,7 @@ Following targeted remediation of security, configuration, and usability issues,
 | **Mobile Jest Tests** | `npm test` | 108 tests | 108 | 0 | 6.1s | **PASS** |
 | **Backend Pytest Tests** | `pytest backend/tests` | 45 tests | 45 | 0 | 0.9s | **PASS** |
 | **Hermes Android Bundle** | `npx expo export --platform android` | 1,226 modules | 1,226 | 0 | 22.7s | **PASS** |
-| **Backend Concurrency** | `python backend/bounded_load_test.py` | 520 requests | 520 | 0 | 0.7s | **PASS** |
+| **Backend Concurrency (ASGI)** | `python backend/bounded_load_test.py` | 620 requests (8 scenarios) | 620 | 0 | 0.66s | **PASS** |
 | **Python Dependencies** | `python -m pip check` | All packages | All | 0 | 0.8s | **PASS** |
 
 ---
