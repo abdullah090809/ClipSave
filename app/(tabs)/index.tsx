@@ -206,7 +206,27 @@ export default function HomeScreen() {
   const handleStartDownload = async (mediaToDownload: ResolvedMedia) => {
     try {
       // Ensure user grants gallery permission while user gesture is active
-      await ensureMediaLibraryPermissions().catch(() => {});
+      const hasPerm = await ensureMediaLibraryPermissions().catch(() => false);
+      if (!hasPerm) {
+        Alert.alert(
+          'Gallery Permission Needed',
+          'ClipSave needs permission to save videos directly to your device Gallery. Please allow storage/photos access in your phone Settings so videos appear in your Gallery.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Download Anyway',
+              onPress: async () => {
+                await startDownload(mediaToDownload);
+                setInputUrl('');
+                setResolvedMedia(null);
+                setSelectedFormat(null);
+                router.navigate('/(tabs)/queue');
+              },
+            },
+          ]
+        );
+        return;
+      }
       await startDownload(mediaToDownload);
       setInputUrl('');
       setResolvedMedia(null);

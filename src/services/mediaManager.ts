@@ -183,23 +183,36 @@ export async function saveCompletedMedia(
       // Continue with best-effort asset creation.
     }
 
-    // Save to device Gallery / MediaStore (single copy, zero duplicates)
+    // Save to device Gallery / MediaStore (single copy directly into Gallery)
     let savedToGallery = false;
     try {
-      // Create asset directly in MediaStore (DCIM/Movies)
-      const asset = await MediaLibrary.createAssetAsync(destinationPath);
+      let album: MediaLibrary.Album | null = null;
+      try {
+        album = await MediaLibrary.getAlbumAsync('ClipSave');
+      } catch {
+        album = null;
+      }
+
+      let asset: MediaLibrary.Asset | null = null;
+      if (album && album.id) {
+        try {
+          asset = await MediaLibrary.createAssetAsync(destinationPath, album.id);
+        } catch {
+          asset = await MediaLibrary.createAssetAsync(destinationPath);
+        }
+      } else {
+        asset = await MediaLibrary.createAssetAsync(destinationPath);
+        if (asset) {
+          try {
+            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
+          } catch {
+            // Album grouping optional; asset is already published to MediaStore
+          }
+        }
+      }
+
       if (asset) {
         savedToGallery = true;
-        try {
-          const album = await MediaLibrary.getAlbumAsync('ClipSave');
-          if (album) {
-            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-          } else {
-            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
-          }
-        } catch {
-          // Album grouping optional; asset is already published to MediaStore
-        }
       }
     } catch (assetErr) {
       console.warn('createAssetAsync failed, trying saveToLibraryAsync fallback:', assetErr);

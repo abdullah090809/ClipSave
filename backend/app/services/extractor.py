@@ -85,7 +85,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "noplaylist": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["tv_samsung", "ios", "android"],
+                "player_client": ["android"],
             }
         },
         "socket_timeout": 15,
