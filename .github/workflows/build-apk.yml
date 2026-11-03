@@ -6,11 +6,11 @@ on:
       build_type:
         description: 'Select APK Build Type'
         required: true
-        default: 'debug'
+        default: 'release'
         type: choice
         options:
-          - debug
           - release
+          - debug
           - both
 
   push:
@@ -27,7 +27,7 @@ env:
 
 jobs:
   build-apk:
-    name: Build APK (${{ inputs.build_type || 'debug' }})
+    name: Build Standalone APK (${{ inputs.build_type || 'release' }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -56,35 +56,35 @@ jobs:
       - name: 6. Generate Android Native Project (Expo Prebuild)
         run: npx expo prebuild --platform android --clean
 
-      - name: 7. Configure APK Signing
+      - name: 7. Configure APK Signing & Embedded JS Bundle
         run: |
           cd android/app
-          BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
-          
           if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
             echo "Production keystore secret detected. Decoding release keystore..."
             echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > release.keystore
           else
-            echo "Notice: No production keystore secret (ANDROID_KEYSTORE_BASE64) detected."
-            echo "Generating self-contained signing certificate so APK installs on any Android phone..."
+            echo "Notice: No production keystore secret detected."
+            echo "Configuring self-contained signing so standalone APK installs and runs on any device..."
             if [ ! -f "debug.keystore" ]; then
               keytool -genkey -v -keystore debug.keystore \
                 -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
                 -storepass android -keypass android \
                 -dname "CN=Android Debug,O=Android,C=US"
             fi
+            # Use debug keystore to sign the release build so it installs on any device without production keys
             if grep -q "signingConfigs.release" build.gradle; then
               sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' build.gradle || true
             fi
           fi
 
-      - name: 8. Build APK via Gradle
+      - name: 8. Build Standalone APK via Gradle
         working-directory: android
         run: |
           chmod +x gradlew
-          BUILD_TYPE="${{ inputs.build_type || 'debug' }}"
+          BUILD_TYPE="${{ inputs.build_type || 'release' }}"
           echo "Selected build type: $BUILD_TYPE"
           
+          # assembleRelease ALWAYS compiles and embeds index.android.bundle into the APK (no Metro bundler needed)
           if [ "$BUILD_TYPE" = "debug" ]; then
             ./gradlew assembleDebug --no-daemon
           elif [ "$BUILD_TYPE" = "both" ]; then
@@ -99,6 +99,15 @@ jobs:
           find android/app/build/outputs/apk -type f -name "*.apk" -exec cp {} output-apks/ \;
           echo "Collected APK files:"
           ls -lh output-apks/
+          cd output-apks
+          # Provide a clear, convenient name for the standalone APK
+          for f in *release*.apk; do
+            if [ -f "$f" ]; then
+              cp "$f" "ClipSave-Standalone.apk"
+              echo "Created ClipSave-Standalone.apk from $f"
+              break
+            fi
+          done
 
       - name: 10. Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -109,9 +118,9 @@ jobs:
 
       - name: 11. Generate GitHub Run Summary
         run: |
-          echo "### 🚀 ClipSave Android APK Build Completed!" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 ClipSave Standalone Android APK Build Completed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The APK was compiled using GitHub Actions runners." >> $GITHUB_STEP_SUMMARY
+          echo "The APK contains the fully-embedded JavaScript bundle and runs independently on any Android device without requiring a Metro development server." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "#### Generated Files:" >> $GITHUB_STEP_SUMMARY
           for apk in output-apks/*.apk; do
@@ -120,4 +129,4 @@ jobs:
             echo "- 📱 **$filename** (\`$filesize\`)" >> $GITHUB_STEP_SUMMARY
           done
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **How to download:** Scroll down to the **Artifacts** section at the bottom of this run summary page and click **ClipSave-Android-APK**." >> $GITHUB_STEP_SUMMARY
+          echo "> **How to install:** Download **ClipSave-Standalone.apk** (or \`app-release.apk\`) from the **Artifacts** section below and install it directly on your Android phone." >> $GITHUB_STEP_SUMMARY
