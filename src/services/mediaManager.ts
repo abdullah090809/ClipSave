@@ -106,12 +106,16 @@ export interface SaveMediaResult {
  */
 export async function ensureMediaLibraryPermissions(): Promise<boolean> {
   try {
-    const perm = await MediaLibrary.getPermissionsAsync();
+    let perm = await MediaLibrary.getPermissionsAsync();
     if (perm?.granted || perm?.status === 'granted') {
       return true;
     }
-    const requested = await MediaLibrary.requestPermissionsAsync();
-    return requested?.granted || requested?.status === 'granted';
+    perm = await MediaLibrary.requestPermissionsAsync();
+    if (perm?.granted || perm?.status === 'granted') {
+      return true;
+    }
+    perm = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
+    return perm?.granted || perm?.status === 'granted';
   } catch (err) {
     console.warn('ensureMediaLibraryPermissions failed:', err);
     return false;

@@ -4,7 +4,7 @@ import shutil
 import uuid
 from urllib.parse import urljoin
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 from ..models import ResolveRequest, ResolvedMediaResponse, ErrorResponse
 from ..security.url_validation import validate_media_url
@@ -95,7 +95,7 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
         )
 
 
-@router.get("/stream/{stream_id}")
+@router.api_route("/stream/{stream_id}", methods=["GET", "HEAD"])
 async def stream_media_endpoint(stream_id: str, request: Request):
     """
     Proxies media stream with Range header support, SSRF redirect defense,
@@ -260,6 +260,14 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             response_headers["Content-Length"] = resp.headers["content-length"]
         if "content-range" in resp.headers:
             response_headers["Content-Range"] = resp.headers["content-range"]
+
+        if request.method == "HEAD":
+            await resp.aclose()
+            await client.aclose()
+            return Response(
+                status_code=resp.status_code,
+                headers=response_headers,
+            )
 
         return StreamingResponse(
             chunk_generator(),

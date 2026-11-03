@@ -25,8 +25,6 @@ import {
 import {
   shareSavedMedia,
   playVideo,
-  saveOrExportToGallery,
-  showFileLocationInfo,
 } from '../../src/services/mediaManager';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
@@ -196,18 +194,6 @@ export default function HistoryScreen() {
           onPress: () => handleOpenVideo(selectedItem),
         },
         {
-          key: 'save-gallery',
-          label: 'Save to Gallery / Device',
-          icon: 'download-outline',
-          onPress: () => saveOrExportToGallery(selectedItem.fileUri),
-        },
-        {
-          key: 'location',
-          label: 'View File Location & Info',
-          icon: 'folder-open-outline',
-          onPress: () => showFileLocationInfo(selectedItem.fileUri, selectedItem.title, true),
-        },
-        {
           key: 'share',
           label: 'Share Video',
           icon: 'share-outline',
@@ -215,7 +201,7 @@ export default function HistoryScreen() {
         },
         {
           key: 'copy',
-          label: 'Copy TikTok Link',
+          label: 'Copy Link',
           icon: 'copy-outline',
           onPress: () => handleCopyLink(selectedItem),
         },

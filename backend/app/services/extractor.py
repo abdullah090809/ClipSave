@@ -83,27 +83,9 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "skip_download": True,
         "extract_flat": False,
         "noplaylist": True,
-        "allowed_extractors": [
-            "TikTok",
-            "TikTokUser",
-            "youtube",
-            "Youtube",
-            "YoutubeShorts",
-            "Instagram",
-            "InstagramIOS",
-            "instagram:story",
-            "instagram:tag",
-            "instagram:user",
-            "facebook",
-            "facebook:reel",
-            "FacebookPluginsVideo",
-            "FacebookRedirectURL",
-            "generic",
-        ],
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "web_creator", "web"],
-                "player_skip": ["configs"],
+                "player_client": ["tv_samsung", "ios", "android"],
             }
         },
         "socket_timeout": 15,
@@ -644,7 +626,9 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
 
     # Prevent directMediaUrl fallback to a silent stream when audio remuxing is required
     if detected_platform == "youtube":
-        direct_fallback = None
+        first_fmt = tiers.get(default_format.id) if (default_format and "tiers" in locals()) else None
+        has_direct_audio = bool(first_fmt and first_fmt.get("acodec") != "none")
+        direct_fallback = first_fmt.get("url") if has_direct_audio else None
     else:
         direct_fallback = media_url if not needs_audio_mux else None
 
