@@ -106,15 +106,16 @@ def validate_media_url(raw_url: str) -> Tuple[bool, str, str, str]:
     if hostname in ALLOWED_YOUTUBE_HOSTS:
         path = parsed.path or ""
         is_short = path.startswith("/shorts/")
-        is_watch = path == "/watch"
+        is_watch = path == "/watch" or path.startswith("/watch/")
         is_embed = path.startswith("/embed/")
+        is_live = path.startswith("/live/")
         is_youtu_be = hostname == "youtu.be" and len(path) > 1
 
         if is_watch:
             query_params = parse_qs(parsed.query)
             if "v" not in query_params or not query_params["v"][0]:
                 return False, "", "youtube", "YouTube watch URL is missing video ID parameter ('v')."
-        elif not is_short and not is_embed and not is_youtu_be:
+        elif not is_short and not is_embed and not is_youtu_be and not is_live:
             return False, "", "youtube", "URL path is missing a specific YouTube video reference."
 
         return True, url, "youtube", ""

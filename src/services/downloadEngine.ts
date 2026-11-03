@@ -223,7 +223,17 @@ async function executeDownloadStream(
 
     activeDownloadSessions.set(jobId, downloadResumable);
 
-    let result = await downloadResumable.downloadAsync();
+    let result: FileSystem.FileSystemDownloadResult | undefined;
+    try {
+      result = await downloadResumable.downloadAsync();
+    } catch (streamErr) {
+      console.warn(`Resumable stream download threw for ${jobId}, falling back to downloadAsync:`, streamErr);
+      try {
+        result = await FileSystem.downloadAsync(targetUrl, tempPath, { headers });
+      } catch (directErr) {
+        console.warn(`Direct downloadAsync also failed:`, directErr);
+      }
+    }
 
     // Check if job was paused or cancelled while download was in flight
     const jobAfter = getQueue().find((j) => j.id === jobId);

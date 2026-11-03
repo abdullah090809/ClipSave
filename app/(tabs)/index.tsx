@@ -23,6 +23,7 @@ import { typography } from '../../src/theme/typography';
 import { validateMediaUrl, detectPlatform } from '../../src/utils/urlValidator';
 import { resolveMediaUrl, checkAndWarmBackend } from '../../src/services/apiClient';
 import { startDownload } from '../../src/services/downloadEngine';
+import { ensureMediaLibraryPermissions } from '../../src/services/mediaManager';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { ResolvedMedia, MediaFormatOption, ResolveError } from '../../src/types';
 import { getSettings } from '../../src/storage/settingsStore';
@@ -204,6 +205,8 @@ export default function HomeScreen() {
 
   const handleStartDownload = async (mediaToDownload: ResolvedMedia) => {
     try {
+      // Ensure user grants gallery permission while user gesture is active
+      await ensureMediaLibraryPermissions().catch(() => {});
       await startDownload(mediaToDownload);
       setInputUrl('');
       setResolvedMedia(null);

@@ -233,11 +233,12 @@ export function validateMediaUrl(rawInput: string): UrlValidationResult {
     if (isYouTube) {
       const pathname = parsed.pathname;
       const isShort = pathname.startsWith('/shorts/');
-      const isWatch = pathname === '/watch' && parsed.searchParams.has('v');
+      const isWatch = (pathname === '/watch' || pathname.startsWith('/watch/')) && parsed.searchParams.has('v');
       const isYouTuBe = hostname === 'youtu.be' && pathname.length > 1;
       const isEmbed = pathname.startsWith('/embed/');
+      const isLive = pathname.startsWith('/live/');
 
-      if (!isShort && !isWatch && !isYouTuBe && !isEmbed) {
+      if (!isShort && !isWatch && !isYouTuBe && !isEmbed && !isLive) {
         return {
           isValid: false,
           platform: 'youtube',
