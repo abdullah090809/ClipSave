@@ -183,34 +183,10 @@ export async function saveCompletedMedia(
       // Continue with best-effort asset creation.
     }
 
-    // Save to device Gallery / MediaStore (single copy directly into Gallery)
+    // Save to device Gallery / MediaStore (single copy directly into Gallery, zero duplicates)
     let savedToGallery = false;
     try {
-      let album: MediaLibrary.Album | null = null;
-      try {
-        album = await MediaLibrary.getAlbumAsync('ClipSave');
-      } catch {
-        album = null;
-      }
-
-      let asset: MediaLibrary.Asset | null = null;
-      if (album && album.id) {
-        try {
-          asset = await MediaLibrary.createAssetAsync(destinationPath, album.id);
-        } catch {
-          asset = await MediaLibrary.createAssetAsync(destinationPath);
-        }
-      } else {
-        asset = await MediaLibrary.createAssetAsync(destinationPath);
-        if (asset) {
-          try {
-            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
-          } catch {
-            // Album grouping optional; asset is already published to MediaStore
-          }
-        }
-      }
-
+      const asset = await MediaLibrary.createAssetAsync(destinationPath);
       if (asset) {
         savedToGallery = true;
       }
@@ -391,16 +367,6 @@ export async function saveOrExportToGallery(fileUri: string): Promise<boolean> {
       const asset = await MediaLibrary.createAssetAsync(targetUri);
       if (asset) {
         saved = true;
-        try {
-          const album = await MediaLibrary.getAlbumAsync('ClipSave');
-          if (album) {
-            await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-          } else {
-            await MediaLibrary.createAlbumAsync('ClipSave', asset, false);
-          }
-        } catch {
-          // Asset is already in gallery
-        }
       }
     } catch (assetErr) {
       console.warn('saveOrExportToGallery createAssetAsync failed, trying saveToLibraryAsync:', assetErr);

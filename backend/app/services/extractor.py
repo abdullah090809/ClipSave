@@ -75,7 +75,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
     """
     Executes yt-dlp extraction synchronously in thread pool.
     Strictly uses Python API with no shell interpolation.
-    Supports YouTube (Shorts & Videos), TikTok, and generic extractors.
+    Supports YouTube (Shorts & Videos), TikTok, Instagram, Facebook, and generic extractors.
     """
     ydl_opts = {
         "quiet": True,
@@ -83,12 +83,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "skip_download": True,
         "extract_flat": False,
         "noplaylist": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android"],
-            }
-        },
-        "socket_timeout": 15,
+        "socket_timeout": 20,
         "js_runtimes": {"node": {}},
     }
 
@@ -98,12 +93,31 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
     elif os.path.exists("cookies.txt"):
         ydl_opts["cookiefile"] = "cookies.txt"
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        if info:
-            cookie_dict = {c.name: c.value for c in ydl.cookiejar}
-            info["_extracted_cookies"] = cookie_dict
-        return info
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info:
+                cookie_dict = {c.name: c.value for c in ydl.cookiejar}
+                info["_extracted_cookies"] = cookie_dict
+            return info
+    except yt_dlp.utils.DownloadError as e:
+        is_yt = "youtube.com" in url.lower() or "youtu.be" in url.lower()
+        if is_yt:
+            # Datacenter fallback if default player client fails on YouTube
+            fallback_opts = dict(ydl_opts)
+            fallback_opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"],
+                    "player_skip": ["configs"],
+                }
+            }
+            with yt_dlp.YoutubeDL(fallback_opts) as fydl:
+                info = fydl.extract_info(url, download=False)
+                if info:
+                    cookie_dict = {c.name: c.value for c in fydl.cookiejar}
+                    info["_extracted_cookies"] = cookie_dict
+                return info
+        raise e
 
 
 async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> ResolvedMediaResponse:
