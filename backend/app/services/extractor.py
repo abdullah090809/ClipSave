@@ -93,8 +93,18 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
     if cookies_content and cookies_content.strip():
         tmp_cookie = "/tmp/cookies.txt"
         try:
+            raw_data = cookies_content.strip()
+            import base64
+            try:
+                decoded = base64.b64decode(raw_data).decode("utf-8")
+                if "youtube" in decoded or "# Netscape" in decoded:
+                    raw_data = decoded
+            except Exception:
+                pass
+            if "\\n" in raw_data and "\n" not in raw_data:
+                raw_data = raw_data.replace("\\n", "\n")
             with open(tmp_cookie, "w", encoding="utf-8") as f:
-                f.write(cookies_content)
+                f.write(raw_data)
             ydl_opts["cookiefile"] = tmp_cookie
         except Exception:
             pass
