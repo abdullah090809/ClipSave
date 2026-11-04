@@ -30,8 +30,9 @@ COPY --from=builder --chown=appuser:appuser /root/.local /app/.local
 ENV PATH=/app/.local/bin:$PATH
 ENV PYTHONPATH=/app:/app/.local/lib/python3.13/site-packages
 
-# Copy application source
+# Copy application source and cookies
 COPY --chown=appuser:appuser app /app/app
+COPY --chown=appuser:appuser cookies.txt /app/cookies.txt
 
 # Drop privileges
 USER 10001:10001

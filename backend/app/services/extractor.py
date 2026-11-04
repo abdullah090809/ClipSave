@@ -87,9 +87,23 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "js_runtimes": {"node": {}},
     }
 
-    cookies_path = getattr(settings, "COOKIES_FILE", None)
-    if cookies_path and os.path.exists(cookies_path):
+    cookies_content = os.environ.get("COOKIES_CONTENT") or getattr(settings, "COOKIES_CONTENT", None)
+    cookies_path = getattr(settings, "COOKIES_FILE", None) or os.environ.get("COOKIES_FILE")
+
+    if cookies_content and cookies_content.strip():
+        tmp_cookie = "/tmp/cookies.txt"
+        try:
+            with open(tmp_cookie, "w", encoding="utf-8") as f:
+                f.write(cookies_content)
+            ydl_opts["cookiefile"] = tmp_cookie
+        except Exception:
+            pass
+    elif cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
+    elif os.path.exists("/app/cookies.txt"):
+        ydl_opts["cookiefile"] = "/app/cookies.txt"
+    elif os.path.exists("backend/cookies.txt"):
+        ydl_opts["cookiefile"] = "backend/cookies.txt"
     elif os.path.exists("cookies.txt"):
         ydl_opts["cookiefile"] = "cookies.txt"
 
