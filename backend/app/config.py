@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 30
     
     # Extraction Timeouts and Concurrency Limits
-    REQUEST_TIMEOUT_SECONDS: int = 15
+    REQUEST_TIMEOUT_SECONDS: int = 45
     MAX_CONCURRENT_EXTRACTIONS: int = 5
     
     # Enable mock extractor mode (for CI, deterministic tests, or when third-party network is restricted)

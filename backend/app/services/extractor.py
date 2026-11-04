@@ -83,8 +83,13 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "skip_download": True,
         "extract_flat": False,
         "noplaylist": True,
-        "socket_timeout": 20,
+        "socket_timeout": 15,
         "js_runtimes": {"node": {}},
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["web", "android"],
+            }
+        },
     }
 
     cookies_content = os.environ.get("COOKIES_CONTENT") or getattr(settings, "COOKIES_CONTENT", None)
