@@ -374,7 +374,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 )
             raise ExtractionError(
                 code="EXTRACTOR_FAILED",
-                message="Could not resolve media metadata from the provided link.",
+                message=f"Could not resolve media metadata: {str(e)}",
                 status_code=422,
             )
         except Exception as e:
