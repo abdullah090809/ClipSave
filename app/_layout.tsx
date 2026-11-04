@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeContext';
 import { loadQueueFromStorage } from '../src/storage/queueStore';
-import { cleanOrphanedTempFiles } from '../src/services/mediaManager';
+import { cleanOrphanedTempFiles, ensureMediaLibraryPermissions } from '../src/services/mediaManager';
 import { getSettings } from '../src/storage/settingsStore';
 import { checkAndWarmBackend } from '../src/services/apiClient';
 import { LaunchAnimation } from '../src/components/LaunchAnimation';
@@ -24,6 +24,9 @@ function RootNavigation() {
       try {
         // One-shot silent pre-warm on app launch (boots sleeping backend in parallel)
         checkAndWarmBackend().catch(() => {});
+
+        // Proactively request Gallery permissions upon launch so downloads save seamlessly
+        ensureMediaLibraryPermissions().catch(() => {});
 
         const [settings] = await Promise.all([
           getSettings(),

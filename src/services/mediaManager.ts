@@ -138,8 +138,21 @@ export async function saveCompletedMedia(
       };
     }
 
+    // Ensure filename strictly contains only ASCII alphanumeric chars [a-zA-Z0-9_-] and a clean extension
+    // to guarantee Android MimeTypeMap and Scoped Storage never reject the MIME type or throw AssetFileException
+    const extMatch = sanitizedFilename.match(/\.([a-zA-Z0-9]+)$/);
+    const ext = extMatch ? extMatch[1].toLowerCase() : 'mp4';
+    const rawBase = sanitizedFilename.replace(/\.[^.]+$/, '');
+    const cleanBase = rawBase
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/\.{2,}/g, '_')
+      .replace(/_{2,}/g, '_')
+      .slice(0, 80)
+      .replace(/^_+|_+$/g, '');
+    const cleanFilename = `${cleanBase || 'ClipSave_video'}_${Date.now()}.${ext}`;
+
     // Move from .tmp to permanent app storage with resilient fallback
-    let destinationPath = `${FileSystem.documentDirectory}${sanitizedFilename}`;
+    let destinationPath = `${FileSystem.documentDirectory}${cleanFilename}`;
     try {
       await FileSystem.moveAsync({
         from: sourceTempPath,
@@ -147,7 +160,7 @@ export async function saveCompletedMedia(
       });
     } catch (moveErr) {
       console.warn('Initial moveAsync failed, falling back to safe timestamp filename:', moveErr);
-      const fallbackFilename = `ClipSave_${Date.now()}.mp4`;
+      const fallbackFilename = `ClipSave_${Date.now()}.${ext}`;
       destinationPath = `${FileSystem.documentDirectory}${fallbackFilename}`;
       try {
         await FileSystem.moveAsync({

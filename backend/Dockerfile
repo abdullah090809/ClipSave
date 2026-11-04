@@ -28,7 +28,7 @@ WORKDIR /app
 # Copy dependencies from builder
 COPY --from=builder --chown=appuser:appuser /root/.local /app/.local
 ENV PATH=/app/.local/bin:$PATH
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/.local/lib/python3.13/site-packages
 
 # Copy application source
 COPY --chown=appuser:appuser app /app/app
