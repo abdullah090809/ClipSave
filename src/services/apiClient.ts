@@ -129,8 +129,8 @@ export async function resolveTikTokUrl(
 
   try {
     const controller = new AbortController();
-    // 12-second initial attempt timeout to detect if backend is awake
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    // 25-second initial attempt timeout to detect if backend is awake
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
     let response: Response;
 
     try {
@@ -185,7 +185,7 @@ export async function resolveTikTokUrl(
         onStatusUpdate?.('Server ready! Resolving video...');
         // Retry resolve request now that container is warm
         const retryController = new AbortController();
-        const retryTimeout = setTimeout(() => retryController.abort(), 20000);
+        const retryTimeout = setTimeout(() => retryController.abort(), 45000);
         response = await executeResolve(retryController.signal);
         clearTimeout(retryTimeout);
       } else {
@@ -263,10 +263,14 @@ export async function resolveTikTokUrl(
     if (error.code && error.message) {
       throw error;
     }
-    if (error.name === 'AbortError') {
+    if (
+      error.name === 'AbortError' ||
+      error.message?.includes('aborted') ||
+      error.message?.includes('Network request failed')
+    ) {
       throw {
         code: 'TIMEOUT',
-        message: 'Resolver request timed out. The server may be waking up from sleep. Please try again in a moment.',
+        message: 'Resolver request took too long or timed out. Please try again in a moment.',
         isRetryable: true,
       } as ResolveError;
     }
