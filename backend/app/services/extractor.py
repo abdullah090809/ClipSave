@@ -92,35 +92,56 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         },
     }
 
+    # Load master cookies without allowing yt-dlp to mutate the master file on exit
     cookies_content = os.environ.get("COOKIES_CONTENT") or getattr(settings, "COOKIES_CONTENT", None)
     cookies_path = getattr(settings, "COOKIES_FILE", None) or os.environ.get("COOKIES_FILE")
 
+    master_cookie_data = None
     if cookies_content and cookies_content.strip():
-        tmp_cookie = "/tmp/cookies.txt"
+        master_cookie_data = cookies_content.strip()
+        import base64
         try:
-            raw_data = cookies_content.strip()
-            import base64
-            try:
-                decoded = base64.b64decode(raw_data).decode("utf-8")
-                if "youtube" in decoded or "# Netscape" in decoded:
-                    raw_data = decoded
-            except Exception:
-                pass
-            if "\\n" in raw_data and "\n" not in raw_data:
-                raw_data = raw_data.replace("\\n", "\n")
-            with open(tmp_cookie, "w", encoding="utf-8") as f:
-                f.write(raw_data)
-            ydl_opts["cookiefile"] = tmp_cookie
+            decoded = base64.b64decode(master_cookie_data).decode("utf-8")
+            if "youtube" in decoded or "# Netscape" in decoded:
+                master_cookie_data = decoded
         except Exception:
             pass
+        if "\\n" in master_cookie_data and "\n" not in master_cookie_data:
+            master_cookie_data = master_cookie_data.replace("\\n", "\n")
     elif cookies_path and os.path.exists(cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
+        try:
+            with open(cookies_path, "r", encoding="utf-8") as f:
+                master_cookie_data = f.read()
+        except Exception:
+            pass
     elif os.path.exists("/app/cookies.txt"):
-        ydl_opts["cookiefile"] = "/app/cookies.txt"
+        try:
+            with open("/app/cookies.txt", "r", encoding="utf-8") as f:
+                master_cookie_data = f.read()
+        except Exception:
+            pass
     elif os.path.exists("backend/cookies.txt"):
-        ydl_opts["cookiefile"] = "backend/cookies.txt"
+        try:
+            with open("backend/cookies.txt", "r", encoding="utf-8") as f:
+                master_cookie_data = f.read()
+        except Exception:
+            pass
     elif os.path.exists("cookies.txt"):
-        ydl_opts["cookiefile"] = "cookies.txt"
+        try:
+            with open("cookies.txt", "r", encoding="utf-8") as f:
+                master_cookie_data = f.read()
+        except Exception:
+            pass
+
+    if master_cookie_data:
+        import tempfile
+        try:
+            runtime_cookie = os.path.join(tempfile.gettempdir(), "clipsave_runtime_cookies.txt")
+            with open(runtime_cookie, "w", encoding="utf-8") as f:
+                f.write(master_cookie_data)
+            ydl_opts["cookiefile"] = runtime_cookie
+        except Exception:
+            pass
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
