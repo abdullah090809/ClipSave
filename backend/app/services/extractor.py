@@ -87,7 +87,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "js_runtimes": {"node": {}},
         "extractor_args": {
             "youtube": {
-                "player_client": ["web", "android"],
+                "player_client": ["visionos", "ios", "mweb", "web"],
             }
         },
     }
@@ -157,7 +157,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
             fallback_opts = dict(ydl_opts)
             fallback_opts["extractor_args"] = {
                 "youtube": {
-                    "player_client": ["android", "ios", "mweb", "web"],
+                    "player_client": ["visionos", "ios", "mweb"],
                     "player_skip": ["configs"],
                 }
             }
