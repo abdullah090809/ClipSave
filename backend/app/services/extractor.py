@@ -160,6 +160,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         if is_yt:
             # Datacenter fallback if default player client fails on YouTube
             fallback_opts = dict(ydl_opts)
+            fallback_opts.pop("cookiefile", None)
             fallback_opts["extractor_args"] = {
                 "youtube": {
                     "player_client": ["visionos", "ios", "mweb"],
