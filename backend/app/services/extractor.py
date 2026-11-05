@@ -84,10 +84,11 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "extract_flat": False,
         "noplaylist": True,
         "socket_timeout": 15,
+        "check_formats": False,
         "js_runtimes": {"node": {}},
         "extractor_args": {
             "youtube": {
-                "player_client": ["visionos", "ios", "mweb", "web"],
+                "player_client": ["visionos", "ios", "mweb"],
             }
         },
     }
@@ -98,40 +99,44 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
 
     master_cookie_data = None
     if cookies_content and cookies_content.strip():
-        master_cookie_data = cookies_content.strip()
+        raw_val = cookies_content.strip()
         import base64
         try:
-            decoded = base64.b64decode(master_cookie_data).decode("utf-8")
+            decoded = base64.b64decode(raw_val).decode("utf-8")
             if "youtube" in decoded or "# Netscape" in decoded:
-                master_cookie_data = decoded
+                raw_val = decoded
         except Exception:
             pass
-        if "\\n" in master_cookie_data and "\n" not in master_cookie_data:
-            master_cookie_data = master_cookie_data.replace("\\n", "\n")
-    elif cookies_path and os.path.exists(cookies_path):
-        try:
-            with open(cookies_path, "r", encoding="utf-8") as f:
-                master_cookie_data = f.read()
-        except Exception:
-            pass
-    elif os.path.exists("/app/cookies.txt"):
-        try:
-            with open("/app/cookies.txt", "r", encoding="utf-8") as f:
-                master_cookie_data = f.read()
-        except Exception:
-            pass
-    elif os.path.exists("backend/cookies.txt"):
-        try:
-            with open("backend/cookies.txt", "r", encoding="utf-8") as f:
-                master_cookie_data = f.read()
-        except Exception:
-            pass
-    elif os.path.exists("cookies.txt"):
-        try:
-            with open("cookies.txt", "r", encoding="utf-8") as f:
-                master_cookie_data = f.read()
-        except Exception:
-            pass
+        if "\\n" in raw_val and "\n" not in raw_val:
+            raw_val = raw_val.replace("\\n", "\n")
+        if "youtube" in raw_val or "# Netscape" in raw_val:
+            master_cookie_data = raw_val
+
+    if not master_cookie_data:
+        if cookies_path and os.path.exists(cookies_path):
+            try:
+                with open(cookies_path, "r", encoding="utf-8") as f:
+                    master_cookie_data = f.read()
+            except Exception:
+                pass
+        elif os.path.exists("/app/cookies.txt"):
+            try:
+                with open("/app/cookies.txt", "r", encoding="utf-8") as f:
+                    master_cookie_data = f.read()
+            except Exception:
+                pass
+        elif os.path.exists("backend/cookies.txt"):
+            try:
+                with open("backend/cookies.txt", "r", encoding="utf-8") as f:
+                    master_cookie_data = f.read()
+            except Exception:
+                pass
+        elif os.path.exists("cookies.txt"):
+            try:
+                with open("cookies.txt", "r", encoding="utf-8") as f:
+                    master_cookie_data = f.read()
+            except Exception:
+                pass
 
     if master_cookie_data:
         import tempfile
