@@ -81,15 +81,17 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
         return None
 
     data = None
+    used_instance = None
     for inst in INVIDIOUS_INSTANCES:
         try:
             req = urllib.request.Request(
-                f"{inst}/api/v1/videos/{video_id}",
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                f"{inst}/api/v1/videos/{video_id}?local=true",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
             )
-            with urllib.request.urlopen(req, timeout=4) as r:
+            with urllib.request.urlopen(req, timeout=5) as r:
                 if r.status == 200:
                     data = json.loads(r.read().decode())
+                    used_instance = inst
                     break
         except Exception:
             continue
@@ -106,12 +108,19 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
     if not adaptive:
         return None
 
+    def _normalize_url(raw_u):
+        if not raw_u:
+            return None
+        if raw_u.startswith("/"):
+            return f"{used_instance}{raw_u}"
+        return raw_u
+
     # Find best audio format
     best_audio = next((f for f in adaptive if "audio" in f.get("type", "") and f.get("container") == "m4a"), None)
     if not best_audio:
         best_audio = next((f for f in adaptive if "audio" in f.get("type", "")), None)
 
-    audio_url = best_audio.get("url") if best_audio else None
+    audio_url = _normalize_url(best_audio.get("url")) if best_audio else None
 
     def _get_bytes(fmt):
         if not fmt:
@@ -134,14 +143,20 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
     host_prefix = base_url.rstrip("/") if base_url else "http://localhost:8080"
     formats = []
 
+    stream_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://www.youtube.com/",
+    }
+
     for key, label, vid, note in [
         ("1080p", "1080p Full HD", vid_1080, "Full HD"),
         ("720p", "720p HD", vid_720, "HD"),
         ("360p", "360p SD", vid_360, "SD"),
     ]:
         if vid and vid.get("url"):
+            vid_url = _normalize_url(vid.get("url"))
             sid = f"stream_{secrets.token_urlsafe(24)}"
-            register_stream_session(sid, vid.get("url"), {}, title, audio_url=audio_url, ext="mp4")
+            register_stream_session(sid, vid_url, stream_headers, title, audio_url=audio_url, ext="mp4")
             formats.append(MediaFormatOption(
                 id=key,
                 label=label,
@@ -155,7 +170,7 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
 
     if audio_url:
         sid = f"stream_{secrets.token_urlsafe(24)}"
-        register_stream_session(sid, audio_url, {}, title, is_audio_only=True, ext="mp3")
+        register_stream_session(sid, audio_url, stream_headers, title, is_audio_only=True, ext="mp3")
         formats.append(MediaFormatOption(
             id="audio",
             label="Audio Only (MP3)",
@@ -180,7 +195,7 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
         durationSeconds=duration,
         thumbnailUrl=thumb,
         mediaUrl=formats[0].mediaUrl,
-        directMediaUrl=None,
+        directMediaUrl=formats[0].mediaUrl,
         httpHeaders={},
         estimatedSizeBytes=formats[0].estimatedSizeBytes,
         format="mp4",
