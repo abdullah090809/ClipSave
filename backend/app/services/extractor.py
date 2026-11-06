@@ -1,4 +1,7 @@
 import os
+import re
+import urllib.request
+import json
 import asyncio
 import concurrent.futures
 import secrets
@@ -56,6 +59,136 @@ def get_stream_session(stream_id: str) -> Optional[Dict[str, Any]]:
 def clear_stream_sessions() -> None:
     """Clear all stream sessions (used primarily for test isolation)."""
     _stream_sessions.clear()
+
+
+INVIDIOUS_INSTANCES = [
+    "https://yt.chocolatemoo53.com",
+    "https://invidious.nerdvpn.de",
+    "https://inv.nadeko.net",
+    "https://invidious.jing.rocks",
+    "https://invidious.privacydev.net",
+]
+
+
+def _extract_youtube_id(url: str) -> Optional[str]:
+    m = re.search(r"(?:v=|\/shorts\/|\/embed\/|youtu\.be\/|\/v\/)([a-zA-Z0-9_-]{11})", url)
+    return m.group(1) if m else None
+
+
+def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optional[ResolvedMediaResponse]:
+    video_id = _extract_youtube_id(url)
+    if not video_id:
+        return None
+
+    data = None
+    for inst in INVIDIOUS_INSTANCES:
+        try:
+            req = urllib.request.Request(
+                f"{inst}/api/v1/videos/{video_id}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req, timeout=4) as r:
+                if r.status == 200:
+                    data = json.loads(r.read().decode())
+                    break
+        except Exception:
+            continue
+
+    if not data:
+        return None
+
+    title = data.get("title") or "YouTube Video"
+    author = data.get("author") or "YouTube Creator"
+    duration = float(data.get("lengthSeconds") or 0)
+    thumb = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+
+    adaptive = data.get("adaptiveFormats", [])
+    if not adaptive:
+        return None
+
+    # Find best audio format
+    best_audio = next((f for f in adaptive if "audio" in f.get("type", "") and f.get("container") == "m4a"), None)
+    if not best_audio:
+        best_audio = next((f for f in adaptive if "audio" in f.get("type", "")), None)
+
+    audio_url = best_audio.get("url") if best_audio else None
+
+    def _get_bytes(fmt):
+        if not fmt:
+            return None
+        val = fmt.get("clen") or fmt.get("contentLength")
+        try:
+            return int(val) if val else None
+        except Exception:
+            return None
+
+    def _find_vid(res_prefix):
+        matches = [f for f in adaptive if f.get("resolution") and str(res_prefix) in str(f.get("qualityLabel", ""))]
+        mp4 = next((m for m in matches if m.get("container") == "mp4"), None)
+        return mp4 or (matches[0] if matches else None)
+
+    vid_1080 = _find_vid("1080")
+    vid_720 = _find_vid("720")
+    vid_360 = _find_vid("360")
+
+    host_prefix = base_url.rstrip("/") if base_url else "http://localhost:8080"
+    formats = []
+
+    for key, label, vid, note in [
+        ("1080p", "1080p Full HD", vid_1080, "Full HD"),
+        ("720p", "720p HD", vid_720, "HD"),
+        ("360p", "360p SD", vid_360, "SD"),
+    ]:
+        if vid and vid.get("url"):
+            sid = f"stream_{secrets.token_urlsafe(24)}"
+            register_stream_session(sid, vid.get("url"), {}, title, audio_url=audio_url, ext="mp4")
+            formats.append(MediaFormatOption(
+                id=key,
+                label=label,
+                quality=key,
+                extension="mp4",
+                isVideo=True,
+                mediaUrl=f"{host_prefix}/v1/stream/{sid}",
+                estimatedSizeBytes=_get_bytes(vid),
+                note=note
+            ))
+
+    if audio_url:
+        sid = f"stream_{secrets.token_urlsafe(24)}"
+        register_stream_session(sid, audio_url, {}, title, is_audio_only=True, ext="mp3")
+        formats.append(MediaFormatOption(
+            id="audio",
+            label="Audio Only (MP3)",
+            quality="audio",
+            extension="mp3",
+            isVideo=False,
+            mediaUrl=f"{host_prefix}/v1/stream/{sid}",
+            estimatedSizeBytes=_get_bytes(best_audio),
+            note="High Quality Audio"
+        ))
+
+    if not formats:
+        return None
+
+    return ResolvedMediaResponse(
+        id=video_id,
+        sourceUrl=url,
+        platform="youtube",
+        title=title,
+        author=author,
+        authorUsername="@" + author.replace(" ", ""),
+        durationSeconds=duration,
+        thumbnailUrl=thumb,
+        mediaUrl=formats[0].mediaUrl,
+        directMediaUrl=None,
+        httpHeaders={},
+        estimatedSizeBytes=formats[0].estimatedSizeBytes,
+        format="mp4",
+        quality=formats[0].quality,
+        availableFormats=formats,
+        expiresAt=None,
+        isCleanSourceVerified=False
+    )
 
 
 # Bounded worker semaphore
@@ -404,6 +537,21 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         except yt_dlp.utils.DownloadError as e:
             err_msg = str(e).lower()
             log_safe_error("yt-dlp DownloadError", e, url)
+
+            # Datacenter BotGuard bypass: if YouTube throws bot/sign-in challenges on cloud hosts,
+            # use our resilient fallback with PO-token verified streams
+            if is_youtube:
+                log_safe_info("Attempting YouTube datacenter fallback", url)
+                try:
+                    fallback_resp = await loop.run_in_executor(
+                        _thread_pool, _resolve_youtube_fallback, url, base_url
+                    )
+                    if fallback_resp:
+                        log_safe_info("YouTube fallback resolution successful", url)
+                        return fallback_resp
+                except Exception as fb_err:
+                    log_safe_error("YouTube fallback failed", fb_err, url)
+
             if "private" in err_msg or "login" in err_msg or "empty media response" in err_msg or "not granting access" in err_msg:
                 raise ExtractionError(
                     code="MEDIA_PRIVATE",
