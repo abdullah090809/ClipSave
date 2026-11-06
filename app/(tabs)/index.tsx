@@ -7,7 +7,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   Pressable,
   Image,
   ActivityIndicator,
@@ -29,7 +28,56 @@ import { ResolvedMedia, MediaFormatOption, ResolveError } from '../../src/types'
 import { getSettings } from '../../src/storage/settingsStore';
 import { BottomSheetMenu, SheetAction } from '../../src/components/BottomSheetMenu';
 import { TabHeader } from '../../src/components/TabHeader';
-import { AccordionRow } from '../../src/components/AccordionRow';
+import { ConfirmDialog } from '../../src/components/ConfirmDialog';
+
+interface PlatformCardConfig {
+  id: string;
+  name: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bgColor: string;
+  formats: string;
+  badge: string;
+}
+
+const PLATFORMS_CONFIG: PlatformCardConfig[] = [
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    icon: 'logo-youtube',
+    color: '#EF4444',
+    bgColor: 'rgba(239, 68, 68, 0.12)',
+    formats: 'Videos, Shorts & MP3',
+    badge: '1080p HD',
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok',
+    icon: 'musical-notes',
+    color: '#06B6D4',
+    bgColor: 'rgba(6, 182, 212, 0.12)',
+    formats: 'Watermark-free clips',
+    badge: 'Clean MP4',
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    icon: 'logo-instagram',
+    color: '#E1306C',
+    bgColor: 'rgba(225, 48, 108, 0.12)',
+    formats: 'Reels, Posts & Stories',
+    badge: 'High Res',
+  },
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    icon: 'logo-facebook',
+    color: '#1877F2',
+    bgColor: 'rgba(24, 119, 242, 0.12)',
+    formats: 'Public reels & video clips',
+    badge: 'HD Video',
+  },
+];
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -44,10 +92,17 @@ export default function HomeScreen() {
   const [resolvingStatus, setResolvingStatus] = useState<string | null>(null);
   const [resolvedMedia, setResolvedMedia] = useState<ResolvedMedia | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<MediaFormatOption | null>(null);
-  const [showTopMenu, setShowTopMenu] = useState(false);
   const [showPreviewMenu, setShowPreviewMenu] = useState(false);
+  const [pendingPermissionDownload, setPendingPermissionDownload] = useState<ResolvedMedia | null>(null);
+  const [infoDialog, setInfoDialog] = useState<{
+    title: string;
+    message: string;
+    icon?: keyof typeof Ionicons.glyphMap;
+    iconColor?: string;
+  } | null>(null);
   const [clipboardDetectedUrl, setClipboardDetectedUrl] = useState<string | null>(null);
   const [clipboardPlatform, setClipboardPlatform] = useState<string>('video');
+  const [isFocused, setIsFocused] = useState(false);
   const resolvingRef = useRef(false);
 
   // Real-time platform detection as user types or pastes
@@ -104,7 +159,6 @@ export default function HomeScreen() {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active') {
         checkClipboard();
-        // Modern Android 12-14 privacy delay: re-check once window focus settles
         if (retryTimer) clearTimeout(retryTimer);
         retryTimer = setTimeout(checkClipboard, 350);
       }
@@ -140,7 +194,11 @@ export default function HomeScreen() {
       const hasStr = await Clipboard.hasStringAsync();
       const text = hasStr ? await Clipboard.getStringAsync() : '';
       if (!text || !text.trim()) {
-        Alert.alert('Empty Clipboard', 'No text found on clipboard.');
+        setInfoDialog({
+          title: 'Empty Clipboard',
+          message: 'No text was found on your clipboard. Please copy a video link first.',
+          icon: 'clipboard-outline',
+        });
         return;
       }
       setInputUrl(text.trim());
@@ -148,7 +206,11 @@ export default function HomeScreen() {
       setClipboardDetectedUrl(null);
       checkAndWarmBackend().catch(() => {});
     } catch {
-      Alert.alert('Clipboard Access', 'Could not read from clipboard.');
+      setInfoDialog({
+        title: 'Clipboard Access',
+        message: 'Could not read from clipboard. Please grant clipboard permissions or paste manually.',
+        icon: 'alert-circle-outline',
+      });
     }
   };
 
@@ -162,12 +224,12 @@ export default function HomeScreen() {
   const handleResolve = async () => {
     const rawUrl = inputUrl.trim();
     if (!rawUrl) {
-      setErrorMessage('Please paste or enter a YouTube or TikTok link.');
+      setErrorMessage('Please paste or enter a YouTube, TikTok, Instagram, or Facebook link.');
       return;
     }
     const validation = validateMediaUrl(rawUrl);
     if (!validation.isValid || !validation.normalizedUrl) {
-      setErrorMessage(validation.errorMessage || 'Invalid link format. Please provide a YouTube or TikTok link.');
+      setErrorMessage(validation.errorMessage || 'Invalid link format. Please provide a supported video link.');
       return;
     }
 
@@ -205,36 +267,22 @@ export default function HomeScreen() {
 
   const handleStartDownload = async (mediaToDownload: ResolvedMedia) => {
     try {
-      // Ensure user grants gallery permission while user gesture is active
       const hasPerm = await ensureMediaLibraryPermissions().catch(() => false);
       if (!hasPerm) {
-        Alert.alert(
-          'Gallery Permission Needed',
-          'ClipSave needs permission to save videos directly to your device Gallery. Please allow storage/photos access in your phone Settings so videos appear in your Gallery.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Download Anyway',
-              onPress: async () => {
-                await startDownload(mediaToDownload);
-                setInputUrl('');
-                setResolvedMedia(null);
-                setSelectedFormat(null);
-                router.navigate('/(tabs)/queue');
-              },
-            },
-          ]
-        );
+        setPendingPermissionDownload(mediaToDownload);
         return;
       }
       await startDownload(mediaToDownload);
       setInputUrl('');
       setResolvedMedia(null);
       setSelectedFormat(null);
-      // Navigate to Queue tab so user sees active download
       router.navigate('/(tabs)/queue');
     } catch {
-      Alert.alert('Download Error', 'Could not start download. Please try again.');
+      setInfoDialog({
+        title: 'Download Error',
+        message: 'Could not start download. Please try again.',
+        icon: 'alert-circle',
+      });
     }
   };
 
@@ -257,32 +305,14 @@ export default function HomeScreen() {
     }
   };
 
-  const topMenuActions: SheetAction[] = [
-    {
-      key: 'paste',
-      label: 'Paste from Clipboard',
-      icon: 'clipboard-outline',
-      onPress: handlePaste,
-    },
-    {
-      key: 'queue',
-      label: 'View Queue',
-      icon: 'download-outline',
-      onPress: () => router.navigate('/(tabs)/queue'),
-    },
-    {
-      key: 'history',
-      label: 'Download History',
-      icon: 'library-outline',
-      onPress: () => router.navigate('/(tabs)/history'),
-    },
-    {
-      key: 'settings',
-      label: 'Settings & Appearance',
-      icon: 'settings-outline',
-      onPress: () => router.navigate('/(tabs)/settings'),
-    },
-  ];
+  const handlePlatformPress = (platform: PlatformCardConfig) => {
+    setInfoDialog({
+      title: `${platform.name} Downloads`,
+      message: `To download from ${platform.name}:\n\n1. Open the ${platform.name} app or website\n2. Tap "Share" on any public video and select "Copy Link"\n3. Return here and tap "Get video"`,
+      icon: platform.icon,
+      iconColor: platform.color,
+    });
+  };
 
   // Dynamic preview menu actions matching available formats
   const previewMenuActions: SheetAction[] = resolvedMedia
@@ -318,7 +348,12 @@ export default function HomeScreen() {
           icon: 'link-outline',
           onPress: async () => {
             await Clipboard.setStringAsync(resolvedMedia.sourceUrl);
-            Alert.alert('Copied', 'Original video link copied to clipboard.');
+            setInfoDialog({
+              title: 'Link Copied',
+              message: 'Original video link copied to clipboard.',
+              icon: 'checkmark-circle-outline',
+              iconColor: colors.primary,
+            });
           },
         },
         {
@@ -336,12 +371,8 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      {/* 1. COMPACT SCREEN HEADER WITH LOGO, NAME & 3-DOTS OVERFLOW */}
-      <TabHeader
-        brand
-        onOverflowPress={() => setShowTopMenu(true)}
-        overflowLabel="Home options"
-      />
+      {/* 1. SCREEN HEADER WITH BRAND LOGO & TITLE */}
+      <TabHeader brand />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -352,48 +383,198 @@ export default function HomeScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* 2. CENTERED HERO SECTION */}
+          {/* 2. INTENTIONAL HERO SECTION WITH ARTISAN BADGE */}
           <View style={styles.heroSection}>
+            <View style={[styles.heroBadge, { backgroundColor: colors.primaryContainer, borderColor: colors.primaryBorder }]}>
+              <Ionicons name="sparkles" size={12} color={colors.primary} />
+              <Text style={[typography.micro, { color: colors.primary, fontWeight: '700', marginLeft: 6, letterSpacing: 0.6 }]}>
+                UNIVERSAL MEDIA SAVER • HD & AUDIO
+              </Text>
+            </View>
+
             <Text
               style={[
-                typography.headlineMedium,
-                { color: colors.textPrimary, fontWeight: '800', textAlign: 'center' },
+                styles.heroTitle,
+                { color: colors.textPrimary },
               ]}
               accessibilityRole="header"
             >
-              Paste video link
-            </Text>
-            <Text
-              style={[
-                typography.bodyMedium,
-                { color: colors.textSecondary, textAlign: 'center', marginTop: 4 },
-              ]}
-            >
-              Save YouTube, TikTok, Instagram & Facebook videos
+              Save Any Video
             </Text>
 
-            {/* Supported Platform Badges */}
-            <View style={styles.supportedPlatformsRow}>
-              <View style={[styles.platformBadge, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}>
-                <Ionicons name="logo-youtube" size={13} color="#EF4444" />
-                <Text style={[typography.micro, { color: '#EF4444', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>YouTube</Text>
+            <Text
+              style={[
+                typography.body,
+                styles.heroSubtitle,
+                { color: colors.textSecondary },
+              ]}
+            >
+              Paste any public link to save watermark-free video or audio directly to your device gallery.
+            </Text>
+          </View>
+
+          {/* 3. TACTILE INPUT CARD WITH EMBEDDED HEADER & DETECTED BADGE */}
+          <View
+            style={[
+              styles.inputCard,
+              {
+                backgroundColor: colors.surfaceContainer,
+                borderColor: errorMessage
+                  ? colors.danger
+                  : isFocused
+                  ? colors.primary
+                  : colors.surfaceBorder,
+              },
+            ]}
+          >
+            {/* Input Card Header Row */}
+            <View style={styles.inputCardHeader}>
+              <Text style={[typography.micro, { color: colors.textMuted, fontWeight: '700', letterSpacing: 0.8 }]}>
+                SOURCE LINK
+              </Text>
+
+              {inputUrl.length > 0 && liveDetection.platform !== 'generic' ? (
+                <View
+                  style={[
+                    styles.platformPill,
+                    {
+                      backgroundColor:
+                        liveDetection.platform === 'youtube'
+                          ? 'rgba(239, 68, 68, 0.12)'
+                          : liveDetection.platform === 'instagram'
+                          ? 'rgba(225, 48, 108, 0.12)'
+                          : liveDetection.platform === 'facebook'
+                          ? 'rgba(24, 119, 242, 0.12)'
+                          : 'rgba(6, 182, 212, 0.12)',
+                      borderColor:
+                        liveDetection.platform === 'youtube'
+                          ? '#EF4444'
+                          : liveDetection.platform === 'instagram'
+                          ? '#E1306C'
+                          : liveDetection.platform === 'facebook'
+                          ? '#1877F2'
+                          : '#06B6D4',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      liveDetection.platform === 'youtube'
+                        ? 'logo-youtube'
+                        : liveDetection.platform === 'instagram'
+                        ? 'logo-instagram'
+                        : liveDetection.platform === 'facebook'
+                        ? 'logo-facebook'
+                        : 'musical-notes'
+                    }
+                    size={11}
+                    color={
+                      liveDetection.platform === 'youtube'
+                        ? '#EF4444'
+                        : liveDetection.platform === 'instagram'
+                        ? '#E1306C'
+                        : liveDetection.platform === 'facebook'
+                        ? '#1877F2'
+                        : '#06B6D4'
+                    }
+                  />
+                  <Text
+                    style={[
+                      typography.micro,
+                      {
+                        color:
+                          liveDetection.platform === 'youtube'
+                            ? '#EF4444'
+                            : liveDetection.platform === 'instagram'
+                            ? '#E1306C'
+                            : liveDetection.platform === 'facebook'
+                            ? '#1877F2'
+                            : '#06B6D4',
+                        fontWeight: '700',
+                        marginLeft: 4,
+                      },
+                    ]}
+                  >
+                    {liveDetection.platform === 'youtube'
+                      ? liveDetection.isShort
+                        ? 'YouTube Short'
+                        : 'YouTube Video'
+                      : liveDetection.platform === 'instagram'
+                      ? liveDetection.isShort
+                        ? 'Instagram Reel'
+                        : 'Instagram Video'
+                      : liveDetection.platform === 'facebook'
+                      ? liveDetection.isShort
+                        ? 'Facebook Reel'
+                        : 'Facebook Video'
+                      : 'TikTok Video'}
+                  </Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={handlePaste}
+                  style={[styles.pasteQuickBtn, { backgroundColor: colors.surfaceContainerHigh }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Paste from clipboard"
+                  hitSlop={6}
+                >
+                  <Ionicons name="clipboard-outline" size={11} color={colors.primary} />
+                  <Text style={[typography.micro, { color: colors.primary, fontWeight: '700', marginLeft: 4 }]}>
+                    Paste from clipboard
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+
+            {/* Input Inner Row */}
+            <View style={styles.inputInnerRow}>
+              <View style={[styles.inputIconCircle, { backgroundColor: colors.surfaceContainerHigh }]}>
+                <Ionicons
+                  name="link-outline"
+                  size={18}
+                  color={isFocused ? colors.primary : colors.textSecondary}
+                />
               </View>
-              <View style={[styles.platformBadge, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
-                <Ionicons name="musical-notes" size={13} color="#06B6D4" />
-                <Text style={[typography.micro, { color: '#06B6D4', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>TikTok</Text>
-              </View>
-              <View style={[styles.platformBadge, { backgroundColor: 'rgba(225, 48, 108, 0.12)', borderColor: '#E1306C' }]}>
-                <Ionicons name="logo-instagram" size={13} color="#E1306C" />
-                <Text style={[typography.micro, { color: '#E1306C', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>Instagram</Text>
-              </View>
-              <View style={[styles.platformBadge, { backgroundColor: 'rgba(24, 119, 242, 0.12)', borderColor: '#1877F2' }]}>
-                <Ionicons name="logo-facebook" size={13} color="#1877F2" />
-                <Text style={[typography.micro, { color: '#1877F2', marginLeft: 5, includeFontPadding: false, paddingRight: 2 }]}>Facebook</Text>
-              </View>
+
+              <TextInput
+                style={[
+                  styles.textInput,
+                  typography.body,
+                  { color: colors.textPrimary },
+                ]}
+                placeholder="Paste or enter link here..."
+                placeholderTextColor={colors.textMuted}
+                value={inputUrl}
+                onChangeText={(text) => {
+                  setInputUrl(text);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                returnKeyType="go"
+                onSubmitEditing={handleResolve}
+                accessibilityLabel="Media link input"
+                accessibilityHint="Paste or type a YouTube or TikTok URL to download"
+              />
+
+              {inputUrl.length > 0 ? (
+                <Pressable
+                  onPress={handleClear}
+                  style={styles.iconActionBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear input field"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
             </View>
           </View>
 
-          {/* 3. CLIPBOARD PROMPT CHIP (IF DETECTED) */}
+          {/* 4. CONTEXTUAL CLIPBOARD SUGGESTION CHIP */}
           {clipboardDetectedUrl && clipboardDetectedUrl !== inputUrl.trim() && (
             <Pressable
               onPress={() => {
@@ -404,139 +585,53 @@ export default function HomeScreen() {
               }}
               android_ripple={{ color: colors.ripple }}
               style={[
-                styles.clipboardChip,
+                styles.clipboardSuggestion,
                 {
-                  backgroundColor: colors.primaryLight,
-                  borderColor: colors.primaryBorder,
+                  backgroundColor: colors.surfaceContainerHigh,
+                  borderColor: colors.surfaceBorder,
                 },
               ]}
               accessibilityRole="button"
               accessibilityLabel={`Paste detected ${clipboardPlatform} link`}
             >
-              <Ionicons
-                name={
-                  clipboardPlatform.includes('YouTube')
-                    ? 'logo-youtube'
-                    : clipboardPlatform.includes('Instagram')
-                    ? 'logo-instagram'
-                    : clipboardPlatform.includes('Facebook')
-                    ? 'logo-facebook'
-                    : 'musical-notes'
-                }
-                size={16}
-                color={colors.primary}
-              />
-              <Text
-                style={[typography.labelMedium, { color: colors.primary, flex: 1 }]}
-                numberOfLines={1}
-              >
-                {inputUrl.trim()
-                  ? `New ${clipboardPlatform} link detected: tap to replace`
-                  : `${clipboardPlatform} link detected: tap to paste`}
+              <View style={[styles.clipboardIconBubble, { backgroundColor: colors.primaryContainer }]}>
+                <Ionicons
+                  name={
+                    clipboardPlatform.includes('YouTube')
+                      ? 'logo-youtube'
+                      : clipboardPlatform.includes('Instagram')
+                      ? 'logo-instagram'
+                      : clipboardPlatform.includes('Facebook')
+                      ? 'logo-facebook'
+                      : 'musical-notes'
+                  }
+                  size={13}
+                  color={colors.primary}
+                />
+              </View>
+              <Text style={[typography.captionMedium, { color: colors.textPrimary, flex: 1 }]}>
+                {`Found ${clipboardPlatform} on clipboard • Tap to paste`}
               </Text>
-              <Ionicons name="arrow-forward" size={14} color={colors.primary} />
+              <Ionicons name="arrow-forward" size={14} color={colors.textSecondary} />
             </Pressable>
           )}
 
-          {/* 4. REAL-TIME DETECTED PLATFORM PILL (WHILE TYPING/PASTING) */}
-          {inputUrl.length > 0 && liveDetection.platform !== 'generic' && (
-            <View style={styles.detectedPillRow}>
-              {liveDetection.platform === 'youtube' && (
-                <View style={[styles.detectedPill, { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: '#EF4444' }]}>
-                  <Ionicons name="logo-youtube" size={14} color="#EF4444" />
-                  <Text style={[typography.micro, { color: '#EF4444', fontWeight: '700', marginLeft: 4 }]}>
-                    {liveDetection.isShort ? 'YouTube Short' : 'YouTube Video'}
-                  </Text>
-                </View>
-              )}
-              {liveDetection.platform === 'tiktok' && (
-                <View style={[styles.detectedPill, { backgroundColor: 'rgba(6, 182, 212, 0.15)', borderColor: '#06B6D4' }]}>
-                  <Ionicons name="musical-notes" size={14} color="#06B6D4" />
-                  <Text style={[typography.micro, { color: '#06B6D4', fontWeight: '700', marginLeft: 4 }]}>
-                    TikTok Video
-                  </Text>
-                </View>
-              )}
-              {liveDetection.platform === 'instagram' && (
-                <View style={[styles.detectedPill, { backgroundColor: 'rgba(225, 48, 108, 0.15)', borderColor: '#E1306C' }]}>
-                  <Ionicons name="logo-instagram" size={14} color="#E1306C" />
-                  <Text style={[typography.micro, { color: '#E1306C', fontWeight: '700', marginLeft: 4 }]}>
-                    {liveDetection.isShort ? 'Instagram Reel' : 'Instagram Video'}
-                  </Text>
-                </View>
-              )}
-              {liveDetection.platform === 'facebook' && (
-                <View style={[styles.detectedPill, { backgroundColor: 'rgba(24, 119, 242, 0.15)', borderColor: '#1877F2' }]}>
-                  <Ionicons name="logo-facebook" size={14} color="#1877F2" />
-                  <Text style={[typography.micro, { color: '#1877F2', fontWeight: '700', marginLeft: 4 }]}>
-                    {liveDetection.isShort ? 'Facebook Reel' : 'Facebook Video'}
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* 5. LINK INPUT FIELD */}
-          <View
-            style={[
-              styles.inputContainer,
-              {
-                backgroundColor: colors.inputBackground,
-                borderColor: errorMessage ? colors.danger : colors.inputBorder,
-              },
-            ]}
-          >
-            <Ionicons
-              name="link-outline"
-              size={20}
-              color={colors.textSecondary}
-              style={styles.inputLeftIcon}
-            />
-            <TextInput
-              style={[
-                styles.textInput,
-                typography.body,
-                { color: colors.textPrimary },
-              ]}
-              placeholder="Paste YouTube, TikTok, Instagram, or Facebook link..."
-              placeholderTextColor={colors.textMuted}
-              value={inputUrl}
-              onChangeText={(text) => {
-                setInputUrl(text);
-                if (errorMessage) setErrorMessage(null);
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              returnKeyType="go"
-              onSubmitEditing={handleResolve}
-              accessibilityLabel="Media link input"
-              accessibilityHint="Paste or type a YouTube or TikTok URL to download"
-            />
-            {inputUrl.length > 0 ? (
-              <Pressable
-                onPress={handleClear}
-                style={styles.clearButton}
-                accessibilityRole="button"
-                accessibilityLabel="Clear input field"
-                hitSlop={8}
-              >
-                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-              </Pressable>
-            ) : null}
-          </View>
-
-          {/* Inline Validation / Error Message */}
+          {/* 5. INLINE ERROR CONTAINER */}
           {errorMessage ? (
-            <View style={styles.errorRow}>
-              <Ionicons name="alert-circle" size={16} color={colors.danger} />
-              <Text style={[typography.bodySmall, { color: colors.danger, flex: 1 }]}>
+            <View
+              style={[
+                styles.errorContainer,
+                { backgroundColor: colors.dangerLight, borderColor: colors.dangerBorder },
+              ]}
+            >
+              <Ionicons name="alert-circle" size={18} color={colors.danger} />
+              <Text style={[typography.bodySmall, { color: colors.danger, flex: 1, fontWeight: '500' }]}>
                 {errorMessage}
               </Text>
             </View>
           ) : null}
 
-          {/* 6. PRIMARY FULL-WIDTH ACTION BUTTON */}
+          {/* 6. PRIMARY ACTION BUTTON ("GET VIDEO") */}
           <Pressable
             onPress={handleResolve}
             disabled={resolving}
@@ -545,7 +640,7 @@ export default function HomeScreen() {
               styles.primaryButton,
               {
                 backgroundColor: colors.primary,
-                opacity: resolving ? 0.8 : pressed ? 0.9 : 1,
+                opacity: resolving ? 0.8 : pressed ? 0.92 : 1,
               },
             ]}
             accessibilityRole="button"
@@ -561,7 +656,7 @@ export default function HomeScreen() {
               </View>
             ) : (
               <View style={styles.buttonContent}>
-                <Ionicons name="download-outline" size={20} color={colors.onPrimary} />
+                <Ionicons name="arrow-down-circle-outline" size={20} color={colors.onPrimary} />
                 <Text style={[typography.labelLarge, styles.buttonText, { color: colors.onPrimary }]}>
                   Get video
                 </Text>
@@ -569,7 +664,7 @@ export default function HomeScreen() {
             )}
           </Pressable>
 
-          {/* 7. RESOLVED VIDEO PREVIEW CARD */}
+          {/* 7. RESOLVED VIDEO PREVIEW CARD (Visible after extraction) */}
           {resolvedMedia && (
             <View
               style={[
@@ -683,7 +778,6 @@ export default function HomeScreen() {
                       />
                     </View>
                   )}
-                  {/* Play icon overlay */}
                   <View style={styles.playOverlay}>
                     <Ionicons
                       name={selectedFormat?.isVideo === false ? 'musical-notes' : 'play'}
@@ -691,7 +785,6 @@ export default function HomeScreen() {
                       color="#FFFFFF"
                     />
                   </View>
-                  {/* Duration badge */}
                   {resolvedMedia.durationSeconds ? (
                     <View style={styles.durationBadge}>
                       <Text style={styles.durationText}>
@@ -799,101 +892,139 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* 8. EXPANDABLE ACCORDION ROWS */}
-          <View style={styles.accordionsSection}>
-            {/* Accordion 1: Quick actions (Yellow star icon) */}
-            <AccordionRow
-              title="Quick actions"
-              subtitle="Utilities and shortcuts"
-              icon="star"
-              iconColor="#F59E0B"
-              iconBgColor="rgba(245, 158, 11, 0.15)"
-            >
-              <View style={styles.accordionContentList}>
+          {/* 8. SUPPORTED PLATFORMS BENTO SHOWCASE (Always present to anchor screen hierarchy) */}
+          <View style={styles.showcaseSection}>
+            <View style={styles.showcaseHeader}>
+              <Text style={[typography.micro, { color: colors.textMuted, fontWeight: '700', letterSpacing: 0.8 }]}>
+                SUPPORTED PLATFORMS
+              </Text>
+              <Text style={[typography.micro, { color: colors.primary, fontWeight: '600' }]}>
+                Auto-Detection Active
+              </Text>
+            </View>
+
+            <View style={styles.platformsGrid}>
+              {PLATFORMS_CONFIG.map((p) => (
                 <Pressable
-                  onPress={handlePaste}
-                  style={styles.accordionActionItem}
+                  key={p.id}
+                  onPress={() => handlePlatformPress(p)}
+                  android_ripple={{ color: colors.ripple }}
+                  style={[
+                    styles.platformCard,
+                    {
+                      backgroundColor: colors.surfaceContainer,
+                      borderColor: colors.surfaceBorder,
+                    },
+                  ]}
                   accessibilityRole="button"
-                  accessibilityLabel="Paste from clipboard"
+                  accessibilityLabel={`${p.name}: ${p.formats}. Tap for instructions or paste.`}
                 >
-                  <Ionicons name="clipboard-outline" size={18} color={colors.primary} />
-                  <Text style={[typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
-                    Paste from Clipboard
+                  <View style={styles.platformCardTop}>
+                    <View style={[styles.platformIconCircle, { backgroundColor: p.bgColor }]}>
+                      <Ionicons name={p.icon} size={18} color={p.color} />
+                    </View>
+                    <View style={[styles.platformPillBadge, { backgroundColor: colors.surfaceContainerHigh }]}>
+                      <Text style={[typography.micro, { color: colors.textSecondary, fontWeight: '600' }]}>
+                        {p.badge}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[typography.bodyMedium, styles.platformName, { color: colors.textPrimary }]}>
+                    {p.name}
                   </Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                </Pressable>
-
-                <Pressable
-                  onPress={handleClear}
-                  style={styles.accordionActionItem}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear input"
-                >
-                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                  <Text style={[typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
-                    Clear Input Field
+                  <Text style={[typography.caption, { color: colors.textMuted, marginTop: 2 }]}>
+                    {p.formats}
                   </Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                 </Pressable>
+              ))}
+            </View>
+          </View>
+
+          {/* 9. MINIMALIST 3-STEP QUICK WORKFLOW GUIDE */}
+          <View
+            style={[
+              styles.howItWorksCard,
+              {
+                backgroundColor: colors.surfaceContainerLow,
+                borderColor: colors.surfaceBorder,
+              },
+            ]}
+          >
+            <View style={styles.howItWorksHeader}>
+              <Ionicons name="information-circle-outline" size={15} color={colors.textSecondary} />
+              <Text style={[typography.micro, { color: colors.textSecondary, fontWeight: '700', letterSpacing: 0.6, marginLeft: 6 }]}>
+                HOW TO DOWNLOAD
+              </Text>
+            </View>
+
+            <View style={styles.stepsRow}>
+              <View style={styles.stepItem}>
+                <View style={[styles.stepNumBubble, { backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Text style={[typography.micro, { color: colors.textPrimary, fontWeight: '700' }]}>1</Text>
+                </View>
+                <Text style={[typography.caption, styles.stepText, { color: colors.textSecondary }]}>
+                  Copy link from app
+                </Text>
               </View>
-            </AccordionRow>
 
-            {/* Accordion 2: More features (Purple sparkles/grid icon) */}
-            <AccordionRow
-              title="Supported platforms"
-              subtitle="Multi-platform video & audio saving"
-              icon="sparkles"
-              iconColor="#8B5CF6"
-              iconBgColor="rgba(139, 92, 246, 0.15)"
-            >
-              <View style={styles.accordionFeaturesList}>
-                <View style={styles.featureItem}>
-                  <Ionicons name="logo-youtube" size={20} color="#EF4444" />
-                  <View style={styles.featureTextCol}>
-                    <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}>
-                      YouTube Videos & Shorts
-                    </Text>
-                    <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                      Full HD 1080p, 720p, 360p, and high-quality audio extraction with sound included.
-                    </Text>
-                  </View>
-                </View>
+              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} style={styles.stepChevron} />
 
-                <View style={styles.featureItem}>
-                  <Ionicons name="musical-notes" size={20} color="#06B6D4" />
-                  <View style={styles.featureTextCol}>
-                    <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}>
-                      TikTok Videos & Sounds
-                    </Text>
-                    <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                      Clean watermark-free HD downloads and audio-only extraction directly to your device.
-                    </Text>
-                  </View>
+              <View style={styles.stepItem}>
+                <View style={[styles.stepNumBubble, { backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Text style={[typography.micro, { color: colors.textPrimary, fontWeight: '700' }]}>2</Text>
                 </View>
-
-                <View style={styles.featureItem}>
-                  <Ionicons name="shield-checkmark-outline" size={20} color="#10B981" />
-                  <View style={styles.featureTextCol}>
-                    <Text style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}>
-                      Public Media Gallery Integration
-                    </Text>
-                    <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: 2 }]}>
-                      Single clean copy stored in your ClipSave gallery album with zero duplicate copies.
-                    </Text>
-                  </View>
-                </View>
+                <Text style={[typography.caption, styles.stepText, { color: colors.textSecondary }]}>
+                  Paste & Get video
+                </Text>
               </View>
-            </AccordionRow>
+
+              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} style={styles.stepChevron} />
+
+              <View style={styles.stepItem}>
+                <View style={[styles.stepNumBubble, { backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Text style={[typography.micro, { color: colors.textPrimary, fontWeight: '700' }]}>3</Text>
+                </View>
+                <Text style={[typography.caption, styles.stepText, { color: colors.textSecondary }]}>
+                  Save to Gallery
+                </Text>
+              </View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Top Header Overflow Menu */}
-      <BottomSheetMenu
-        visible={showTopMenu}
-        onClose={() => setShowTopMenu(false)}
-        title="Home Options"
-        actions={topMenuActions}
+      {/* Theme-Aware Gallery Permission Dialog */}
+      <ConfirmDialog
+        visible={!!pendingPermissionDownload}
+        title="Gallery Permission Needed"
+        message="ClipSave needs access to your media library to save downloaded videos to your device Gallery album. You can still download directly to app storage."
+        icon="images-outline"
+        cancelText="Cancel"
+        confirmText="Download Anyway"
+        onCancel={() => setPendingPermissionDownload(null)}
+        onConfirm={async () => {
+          const media = pendingPermissionDownload;
+          setPendingPermissionDownload(null);
+          if (media) {
+            await startDownload(media);
+            setInputUrl('');
+            setResolvedMedia(null);
+            setSelectedFormat(null);
+            router.navigate('/(tabs)/queue');
+          }
+        }}
+      />
+
+      {/* Theme-Aware Info Dialog (replaces all white native Alert.alert popups) */}
+      <ConfirmDialog
+        visible={!!infoDialog}
+        title={infoDialog?.title || ''}
+        message={infoDialog?.message || ''}
+        icon={infoDialog?.icon}
+        iconColor={infoDialog?.iconColor}
+        cancelText={null}
+        confirmText="Got it"
+        onConfirm={() => setInfoDialog(null)}
       />
 
       {/* Preview 3-Dots Action Menu */}
@@ -916,33 +1047,51 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: layout.gutter,
-    paddingTop: layout.section / 2,
+    paddingTop: spacing.xs,
   },
   heroSection: {
-    alignItems: 'center',
     marginBottom: spacing.md,
   },
-  supportedPlatformsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-  },
-  platformBadge: {
+  heroBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderRadius: borderRadius.full,
     borderWidth: 1,
-    flexShrink: 0,
-  },
-  detectedPillRow: {
-    flexDirection: 'row',
     marginBottom: spacing.xs,
   },
-  detectedPill: {
+  heroTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+  },
+  heroSubtitle: {
+    marginTop: spacing.xs,
+    lineHeight: 20,
+    maxWidth: '94%',
+  },
+  inputCard: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1.5,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  inputCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  pasteQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+  },
+  platformPill: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 3,
@@ -950,7 +1099,29 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
     borderWidth: 1,
   },
-  clipboardChip: {
+  inputInnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 46,
+  },
+  inputIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  textInput: {
+    flex: 1,
+    height: '100%',
+    paddingVertical: 0,
+    fontSize: 15,
+  },
+  iconActionBtn: {
+    padding: spacing.xs,
+  },
+  clipboardSuggestion: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -960,39 +1131,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: spacing.md,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: borderRadius.lg,
-    borderWidth: 1.5,
-    paddingHorizontal: spacing.md,
-    minHeight: 52,
-    marginBottom: spacing.sm,
-  },
-  inputLeftIcon: {
-    marginRight: spacing.sm,
-  },
-  textInput: {
-    flex: 1,
-    height: '100%',
-    paddingVertical: 0,
-  },
-  clearButton: {
-    padding: spacing.xs,
-  },
-  errorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-    paddingHorizontal: spacing.xs,
-  },
-  primaryButton: {
-    borderRadius: borderRadius.lg,
-    minHeight: 50,
+  clipboardIconBubble: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.lg,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+  },
+  primaryButton: {
+    borderRadius: borderRadius.md,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
   },
   buttonContent: {
     flexDirection: 'row',
@@ -1001,13 +1162,14 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 15,
   },
   previewCard: {
     borderWidth: 1,
     borderRadius: borderRadius.lg,
     padding: spacing.md,
-    marginBottom: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
   previewPlatformTagRow: {
     flexDirection: 'row',
@@ -1019,7 +1181,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 2,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     borderRadius: borderRadius.full,
     borderWidth: 1,
   },
@@ -1029,8 +1191,8 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   thumbnailWrapper: {
-    width: 76,
-    height: 104,
+    width: 84,
+    height: 112,
     borderRadius: borderRadius.md,
     overflow: 'hidden',
     position: 'relative',
@@ -1064,8 +1226,8 @@ const styles = StyleSheet.create({
     bottom: 4,
     right: 4,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
     borderRadius: 4,
   },
   durationText: {
@@ -1094,7 +1256,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     borderRadius: borderRadius.full,
     borderWidth: 1,
   },
@@ -1104,30 +1266,88 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     borderRadius: borderRadius.md,
-    minHeight: 44,
+    minHeight: 48,
     marginTop: spacing.md,
   },
-  accordionsSection: {
-    marginTop: spacing.xs,
+  showcaseSection: {
+    marginTop: spacing.md,
   },
-  accordionContentList: {
+  showcaseHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+    paddingHorizontal: 2,
+  },
+  platformsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  accordionActionItem: {
+  platformCard: {
+    width: '48%',
+    flexGrow: 1,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    padding: spacing.md,
+  },
+  platformCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  platformIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  platformPillBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
+  },
+  platformName: {
+    fontWeight: '700',
+  },
+  howItWorksCard: {
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  howItWorksHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  accordionFeaturesList: {
-    gap: spacing.md,
-  },
-  featureItem: {
+  stepsRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  featureTextCol: {
+  stepItem: {
     flex: 1,
+    alignItems: 'center',
+  },
+  stepNumBubble: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  stepText: {
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  stepChevron: {
+    marginHorizontal: 2,
+    marginTop: -14,
   },
 });

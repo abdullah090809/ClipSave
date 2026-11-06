@@ -39,7 +39,7 @@ export default function AboutScreen() {
             ClipSave
           </Text>
           <Text style={[typography.bodySmall, { color: colors.textMuted, marginTop: 2 }]}>
-            Open-Source Verified TikTok Media Downloader
+            Open-Source Multi-Platform Media Downloader
           </Text>
         </View>
 
@@ -52,11 +52,35 @@ export default function AboutScreen() {
             </Text>
           </View>
           <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
-            ClipSave is an independent open-source utility and is not affiliated with, endorsed, sponsored, or associated with TikTok, ByteDance Ltd., or any of their affiliates.
+            ClipSave is an independent open-source utility and is not affiliated with, endorsed, sponsored, or associated with TikTok, YouTube, Instagram, Facebook, Meta Platforms, ByteDance Ltd., Google LLC, or any of their affiliates.
           </Text>
           <Text style={[typography.body, { color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 22 }]}>
             ClipSave is intended solely for saving personal videos you own, public domain works, or media for which you have received authorization from the original copyright holder.
           </Text>
+        </Card>
+
+        {/* Supported Platforms & Formats */}
+        <Card variant="outlined" style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Ionicons name="sparkles-outline" size={iconSize.md} color={colors.primary} />
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, marginLeft: spacing.xs }]}>
+              Supported Platforms & Formats
+            </Text>
+          </View>
+          <View style={styles.bulletList}>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22 }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>YouTube:</Text> Videos and Shorts in 1080p, 720p, 360p, and audio extraction (MP3).
+            </Text>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22, marginTop: spacing.xs }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>TikTok:</Text> Watermark-free HD MP4 videos and extracted original audio tracks.
+            </Text>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22, marginTop: spacing.xs }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Instagram:</Text> Public Reels, video posts, and Stories.
+            </Text>
+            <Text style={[typography.body, { color: colors.textSecondary, lineHeight: 22, marginTop: spacing.xs }]}>
+              • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Facebook:</Text> Public videos, Reels, and watch links in HD/SD.
+            </Text>
+          </View>
         </Card>
 
         {/* Privacy Architecture */}

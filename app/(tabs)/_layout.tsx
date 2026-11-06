@@ -86,11 +86,11 @@ export default function TabLayout() {
   }, []);
 
   // Safe bottom padding ensures elevation above Android 3-button & gesture pill bars
-  const bottomInset = Math.max(insets.bottom, 10);
+  const bottomInset = Math.max(insets.bottom, 6);
   const barHeight = Platform.select({
-    ios: 64 + insets.bottom,
-    android: 68 + bottomInset,
-    default: 64,
+    ios: 58 + insets.bottom,
+    android: 60 + bottomInset,
+    default: 60,
   });
 
   return (
@@ -104,16 +104,16 @@ export default function TabLayout() {
           borderTopWidth: StyleSheet.hairlineWidth,
           height: barHeight,
           paddingBottom: bottomInset,
-          paddingTop: 8,
+          paddingTop: 6,
           elevation: 0,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '700',
+          fontSize: 11,
+          fontWeight: '600',
           letterSpacing: 0.1,
-          marginTop: 2,
+          marginTop: 1,
         },
       }}
     >
@@ -200,8 +200,8 @@ const styles = StyleSheet.create({
   iconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 36,
-    width: 64,
+    height: 32,
+    width: 56,
   },
   pill: {
     position: 'absolute',
@@ -209,6 +209,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: 18,
+    borderRadius: 16,
   },
 });

@@ -108,8 +108,6 @@ export const TabHeader: React.FC<TabHeaderProps> = ({
             style={({ pressed }) => [
               styles.action,
               {
-                backgroundColor: colors.surfaceContainer,
-                borderColor: colors.outlineVariant,
                 opacity: pressed ? 0.7 : 1,
               },
             ]}
@@ -117,9 +115,9 @@ export const TabHeader: React.FC<TabHeaderProps> = ({
             accessibilityLabel={overflowLabel}
           >
             <Ionicons
-              name="ellipsis-horizontal"
-              size={iconSize.md}
-              color={colors.textPrimary}
+              name="ellipsis-vertical"
+              size={20}
+              color={colors.textSecondary}
             />
           </Pressable>
         )}
@@ -143,10 +141,9 @@ const styles = StyleSheet.create({
   titleCol: { flexDirection: 'column', justifyContent: 'center' },
   right: { flexDirection: 'row', alignItems: 'center', gap: layout.inline },
   action: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

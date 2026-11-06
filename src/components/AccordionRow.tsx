@@ -77,7 +77,7 @@ export const AccordionRow: React.FC<AccordionRowProps> = ({
             >
               <Ionicons
                 name={icon}
-                size={18}
+                size={16}
                 color={iconColor || colors.primary}
               />
             </View>
@@ -85,8 +85,8 @@ export const AccordionRow: React.FC<AccordionRowProps> = ({
           <View style={styles.titleArea}>
             <Text
               style={[
-                typography.titleMedium,
-                { color: colors.textPrimary, fontWeight: '700' },
+                typography.titleSmall,
+                { color: colors.textPrimary, fontWeight: '700', fontSize: 15 },
               ]}
               numberOfLines={1}
             >
@@ -96,7 +96,7 @@ export const AccordionRow: React.FC<AccordionRowProps> = ({
               <Text
                 style={[
                   typography.caption,
-                  { color: colors.textMuted, marginTop: 1 },
+                  { color: colors.textMuted, marginTop: 1, fontSize: 11 },
                 ]}
                 numberOfLines={1}
               >
@@ -108,7 +108,7 @@ export const AccordionRow: React.FC<AccordionRowProps> = ({
 
         <Ionicons
           name={isExpanded ? 'chevron-up' : 'chevron-down'}
-          size={20}
+          size={18}
           color={colors.textSecondary}
         />
       </Pressable>
@@ -131,29 +131,29 @@ export const AccordionRow: React.FC<AccordionRowProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     overflow: 'hidden',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md - 2,
-    minHeight: 56,
+    paddingVertical: spacing.sm + 2,
+    minHeight: 50,
   },
   headerLeft: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm + 4,
+    gap: spacing.sm + 2,
   },
   iconBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },

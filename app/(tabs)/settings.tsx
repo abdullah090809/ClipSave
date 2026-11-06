@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Alert,
   Switch,
   Pressable,
   TextInput,
@@ -25,11 +24,12 @@ import {
 import { cleanOrphanedTempFiles } from '../../src/services/mediaManager';
 import { clearHistoryAndFiles, getHistory } from '../../src/storage/historyStore';
 import { formatBytes } from '../../src/utils/formatters';
-import { AppSettings, ThemeMode, ColorPalette, AccentColor } from '../../src/types';
+import { AppSettings, ThemeMode, ColorPalette, AccentColor, StartupAnimationMode } from '../../src/types';
 import { ACCENT_PRESETS, PALETTE_PRESETS } from '../../src/theme/colors';
 import { TabHeader } from '../../src/components/TabHeader';
 import { AccordionRow } from '../../src/components/AccordionRow';
 import { BottomSheetMenu, SheetAction } from '../../src/components/BottomSheetMenu';
+import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 
 export default function SettingsScreen() {
   const {
@@ -51,6 +51,15 @@ export default function SettingsScreen() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [isEditingUrl, setIsEditingUrl] = useState(false);
   const [customUrlInput, setCustomUrlInput] = useState('');
+  const [showClearCacheDialog, setShowClearCacheDialog] = useState(false);
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [infoDialog, setInfoDialog] = useState<{
+    title: string;
+    message: string;
+    icon?: keyof typeof Ionicons.glyphMap;
+    iconColor?: string;
+  } | null>(null);
 
   const handleTestConnection = async () => {
     setTestingConnection(true);
@@ -65,14 +74,34 @@ export default function SettingsScreen() {
       });
       clearTimeout(timeout);
       if (res.status === 200) {
-        Alert.alert('Connection Successful', `Backend at ${settings.backendBaseUrl} is online and operational.`);
+        setInfoDialog({
+          title: 'Connection Successful',
+          message: `Backend at ${settings.backendBaseUrl} is online and operational.`,
+          icon: 'checkmark-circle-outline',
+          iconColor: colors.success,
+        });
       } else if (res.status === 503) {
-        Alert.alert('Server Sleeping', `The server at ${settings.backendBaseUrl} is dormant (503). ClipSave will send an automatic wake signal when resolving.`);
+        setInfoDialog({
+          title: 'Server Sleeping',
+          message: `The server at ${settings.backendBaseUrl} is dormant (503). ClipSave will send an automatic wake signal when resolving.`,
+          icon: 'time-outline',
+          iconColor: colors.warning,
+        });
       } else {
-        Alert.alert('Server Returned Error', `Status: ${res.status} (${res.statusText})`);
+        setInfoDialog({
+          title: 'Server Error',
+          message: `Status: ${res.status} (${res.statusText})`,
+          icon: 'alert-circle-outline',
+          iconColor: colors.danger,
+        });
       }
     } catch (err: any) {
-      Alert.alert('Connection Result', `Could not connect to ${settings.backendBaseUrl}.\n\nError: ${err?.message || 'Connection timeout'}`);
+      setInfoDialog({
+        title: 'Connection Result',
+        message: `Could not connect to ${settings.backendBaseUrl}.\n\nError: ${err?.message || 'Connection timeout'}`,
+        icon: 'close-circle-outline',
+        iconColor: colors.danger,
+      });
     } finally {
       setTestingConnection(false);
     }
@@ -115,72 +144,16 @@ export default function SettingsScreen() {
   };
 
   const handleClearCache = useCallback(() => {
-    Alert.alert(
-      'Clear Temporary Files?',
-      'Deletes partial downloads and temporary cache files. Saved videos and history will not be affected.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear Cache',
-          onPress: async () => {
-            setClearing(true);
-            try {
-              const count = await cleanOrphanedTempFiles();
-              Alert.alert('Cache Cleared', `Successfully purged ${count} temporary files.`);
-            } finally {
-              setClearing(false);
-            }
-          },
-        },
-      ]
-    );
+    setShowClearCacheDialog(true);
   }, []);
 
   const handleClearAllHistory = useCallback(() => {
-    Alert.alert(
-      'Clear All History & Videos?',
-      'Permanently delete all downloaded videos from device storage and clear your history? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete All',
-          style: 'destructive',
-          onPress: async () => {
-            setClearing(true);
-            try {
-              await clearHistoryAndFiles();
-              setStorageUsedBytes(0);
-              Alert.alert('Library Cleared', 'All saved videos and history records have been deleted.');
-            } finally {
-              setClearing(false);
-            }
-          },
-        },
-      ]
-    );
+    setShowClearAllDialog(true);
   }, []);
 
   const handleResetSettings = useCallback(() => {
-    Alert.alert(
-      'Reset Settings to Default?',
-      'Reset all app preferences (theme, downloads, concurrency) to defaults?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            await saveSettings(defaultSettings);
-            setSettings(defaultSettings);
-            setThemeMode(defaultSettings.themeMode);
-            setPalette(defaultSettings.palette);
-            setAccentColor(defaultSettings.accentColor);
-            Alert.alert('Settings Reset', 'App preferences have been restored to defaults.');
-          },
-        },
-      ]
-    );
-  }, [setThemeMode, setPalette, setAccentColor]);
+    setShowResetDialog(true);
+  }, []);
 
   const topMenuActions: SheetAction[] = [
     {
@@ -353,6 +326,51 @@ export default function SettingsScreen() {
                 );
               })}
             </View>
+
+            {/* Launch Animation Selector */}
+            <Text
+              style={[
+                typography.labelMedium,
+                { color: colors.textSecondary, marginTop: spacing.md, marginBottom: spacing.xs },
+              ]}
+            >
+              Launch Animation
+            </Text>
+            <View style={styles.themeModeRow}>
+              {(['standard', 'subtle', 'off'] as StartupAnimationMode[]).map((mode) => {
+                const isSelected = (settings.startupAnimation || 'standard') === mode;
+                const label = mode === 'standard' ? 'Standard' : mode === 'subtle' ? 'Subtle' : 'Off';
+                return (
+                  <Pressable
+                    key={mode}
+                    onPress={() => updateSetting({ startupAnimation: mode })}
+                    android_ripple={{ color: colors.ripple }}
+                    style={[
+                      styles.modePill,
+                      {
+                        backgroundColor: isSelected ? colors.primary : colors.surfaceContainerHigh,
+                        borderColor: isSelected ? colors.primary : colors.outlineVariant,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`Launch animation: ${label}`}
+                  >
+                    <Text
+                      style={[
+                        typography.labelMedium,
+                        {
+                          color: isSelected ? colors.onPrimary : colors.textPrimary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </AccordionRow>
 
@@ -468,6 +486,7 @@ export default function SettingsScreen() {
                 <Pressable
                   onPress={() => handleConcurrentChange(-1)}
                   disabled={settings.maxConcurrentDownloads <= 1}
+                  hitSlop={8}
                   style={[
                     styles.stepperButton,
                     {
@@ -495,6 +514,7 @@ export default function SettingsScreen() {
                 <Pressable
                   onPress={() => handleConcurrentChange(1)}
                   disabled={settings.maxConcurrentDownloads >= 5}
+                  hitSlop={8}
                   style={[
                     styles.stepperButton,
                     {
@@ -631,7 +651,12 @@ export default function SettingsScreen() {
                           updateSetting({ backendBaseUrl: trimmed });
                           setIsEditingUrl(false);
                         } else {
-                          Alert.alert('Invalid URL', 'Please enter a valid HTTP or HTTPS endpoint URL.');
+                          setInfoDialog({
+                            title: 'Invalid URL',
+                            message: 'Please enter a valid HTTP or HTTPS endpoint URL.',
+                            icon: 'alert-circle-outline',
+                            iconColor: colors.danger,
+                          });
                         }
                       }}
                       style={[
@@ -670,7 +695,12 @@ export default function SettingsScreen() {
                   <Pressable
                     onPress={() => {
                       updateSetting({ backendBaseUrl: SNAPDEPLOY_BACKEND_URL });
-                      Alert.alert('Reset Complete', `Backend URL reset to official deployment:\n${SNAPDEPLOY_BACKEND_URL}`);
+                      setInfoDialog({
+                        title: 'Reset Complete',
+                        message: `Backend URL reset to official deployment:\n${SNAPDEPLOY_BACKEND_URL}`,
+                        icon: 'checkmark-circle-outline',
+                        iconColor: colors.success,
+                      });
                     }}
                     style={[
                       styles.modePill,
@@ -734,10 +764,11 @@ export default function SettingsScreen() {
 
             <Pressable
               onPress={() => {
-                Alert.alert(
-                  'Privacy & Terms',
-                  'ClipSave does not track your downloads, collect personal data, or inject advertisements.\n\nPlease respect intellectual property and content creators when downloading videos.'
-                );
+                setInfoDialog({
+                  title: 'Privacy & Terms',
+                  message: 'ClipSave does not track your downloads, collect personal data, or inject advertisements.\n\nPlease respect intellectual property and content creators when downloading videos.',
+                  icon: 'shield-checkmark-outline',
+                });
               }}
               android_ripple={{ color: colors.ripple }}
               style={styles.aboutRow}
@@ -754,10 +785,11 @@ export default function SettingsScreen() {
 
             <Pressable
               onPress={() => {
-                Alert.alert(
-                  'Open Source Licenses',
-                  'ClipSave is built with:\n\n• React Native (MIT)\n• Expo (MIT)\n• React (MIT)\n• Ionicons (MIT)\n• SnapDeploy Client'
-                );
+                setInfoDialog({
+                  title: 'Open Source Licenses',
+                  message: 'ClipSave is built with:\n\n• React Native (MIT)\n• Expo (MIT)\n• React (MIT)\n• Ionicons (MIT)\n• SnapDeploy Client',
+                  icon: 'code-slash-outline',
+                });
               }}
               android_ripple={{ color: colors.ripple }}
               style={styles.aboutRow}
@@ -814,6 +846,98 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
+      {/* Theme-Aware Clear Cache Dialog */}
+      <ConfirmDialog
+        visible={showClearCacheDialog}
+        title="Clear Temporary Files?"
+        message="Deletes partial downloads and temporary cache files. Saved videos and history will not be affected."
+        icon="trash-bin-outline"
+        confirmText="Clear Cache"
+        cancelText="Cancel"
+        onCancel={() => setShowClearCacheDialog(false)}
+        onConfirm={async () => {
+          setShowClearCacheDialog(false);
+          setClearing(true);
+          try {
+            const count = await cleanOrphanedTempFiles();
+            setInfoDialog({
+              title: 'Cache Cleared',
+              message: `Successfully purged ${count} temporary files.`,
+              icon: 'checkmark-circle-outline',
+              iconColor: colors.success,
+            });
+          } finally {
+            setClearing(false);
+          }
+        }}
+      />
+
+      {/* Theme-Aware Clear All History Dialog */}
+      <ConfirmDialog
+        visible={showClearAllDialog}
+        title="Clear All History & Videos?"
+        message="Permanently delete all downloaded videos from device storage and clear your history? This action cannot be undone."
+        icon="warning-outline"
+        confirmDestructive
+        confirmText="Delete All"
+        cancelText="Cancel"
+        onCancel={() => setShowClearAllDialog(false)}
+        onConfirm={async () => {
+          setShowClearAllDialog(false);
+          setClearing(true);
+          try {
+            await clearHistoryAndFiles();
+            setStorageUsedBytes(0);
+            setInfoDialog({
+              title: 'Library Cleared',
+              message: 'All saved videos and history records have been deleted.',
+              icon: 'checkmark-circle-outline',
+              iconColor: colors.success,
+            });
+          } finally {
+            setClearing(false);
+          }
+        }}
+      />
+
+      {/* Theme-Aware Reset Settings Dialog */}
+      <ConfirmDialog
+        visible={showResetDialog}
+        title="Reset Settings to Default?"
+        message="Reset all app preferences (theme, downloads, concurrency) to defaults?"
+        icon="refresh-outline"
+        confirmDestructive
+        confirmText="Reset"
+        cancelText="Cancel"
+        onCancel={() => setShowResetDialog(false)}
+        onConfirm={async () => {
+          setShowResetDialog(false);
+          await saveSettings(defaultSettings);
+          setSettings(defaultSettings);
+          setThemeMode(defaultSettings.themeMode);
+          setPalette(defaultSettings.palette);
+          setAccentColor(defaultSettings.accentColor);
+          setInfoDialog({
+            title: 'Settings Reset',
+            message: 'App preferences have been restored to defaults.',
+            icon: 'checkmark-circle-outline',
+            iconColor: colors.success,
+          });
+        }}
+      />
+
+      {/* Theme-Aware Info Dialog (replaces all white native Alert.alert popups) */}
+      <ConfirmDialog
+        visible={!!infoDialog}
+        title={infoDialog?.title || ''}
+        message={infoDialog?.message || ''}
+        icon={infoDialog?.icon}
+        iconColor={infoDialog?.iconColor}
+        cancelText={null}
+        confirmText="Got it"
+        onConfirm={() => setInfoDialog(null)}
+      />
+
       {/* Top Header Overflow Menu */}
       <BottomSheetMenu
         visible={showTopMenu}
@@ -845,10 +969,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: 6,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    minHeight: 40,
+    minHeight: 36,
   },
   paletteRow: {
     flexDirection: 'row',
@@ -858,10 +982,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: 6,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    minHeight: 40,
+    minHeight: 36,
   },
   swatchesRow: {
     flexDirection: 'row',
@@ -870,10 +994,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   swatchCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 3,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -897,9 +1021,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   stepperButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

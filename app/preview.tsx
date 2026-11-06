@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -64,11 +64,15 @@ export default function PreviewScreen() {
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {/* Video Placeholder / Big Icon Card */}
-          <View
+          <Pressable
+            onPress={handleOpenLocalVideo}
+            android_ripple={{ color: colors.ripple }}
             style={[
               styles.savedVideoHero,
               { backgroundColor: colors.surfaceContainer, borderColor: colors.surfaceBorder },
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Play saved video"
           >
             <View
               style={[
@@ -93,7 +97,7 @@ export default function PreviewScreen() {
                 Saved to Device & Gallery (ClipSave Album)
               </Text>
             </View>
-          </View>
+          </Pressable>
 
           {/* Quick Info Box */}
           <View
@@ -224,12 +228,42 @@ export default function PreviewScreen() {
             )}
           </View>
           <View style={styles.summaryText}>
-            <Text style={[typography.titleMedium, { color: colors.textPrimary }]} numberOfLines={4}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              {media.platform === 'youtube' ? (
+                <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}>
+                  <Ionicons name="logo-youtube" size={10} color="#EF4444" />
+                  <Text style={[typography.micro, { color: '#EF4444', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>YouTube</Text>
+                </View>
+              ) : media.platform === 'instagram' ? (
+                <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(225, 48, 108, 0.12)', borderColor: '#E1306C' }]}>
+                  <Ionicons name="logo-instagram" size={10} color="#E1306C" />
+                  <Text style={[typography.micro, { color: '#E1306C', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>Instagram</Text>
+                </View>
+              ) : media.platform === 'facebook' ? (
+                <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(24, 119, 242, 0.12)', borderColor: '#1877F2' }]}>
+                  <Ionicons name="logo-facebook" size={10} color="#1877F2" />
+                  <Text style={[typography.micro, { color: '#1877F2', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>Facebook</Text>
+                </View>
+              ) : (
+                <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
+                  <Ionicons name="musical-notes" size={10} color="#06B6D4" />
+                  <Text style={[typography.micro, { color: '#06B6D4', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>TikTok</Text>
+                </View>
+              )}
+              {media.format ? (
+                <View style={[styles.platformChipSmall, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant }]}>
+                  <Text style={[typography.micro, { color: colors.textSecondary, fontSize: 9, fontWeight: '600' }]}>
+                    {media.format.toUpperCase()}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <Text style={[typography.titleMedium, { color: colors.textPrimary, fontWeight: '600', lineHeight: 22 }]} numberOfLines={3}>
               {media.title || (media.platform === 'youtube' ? 'YouTube video' : media.platform === 'instagram' ? 'Instagram video' : media.platform === 'facebook' ? 'Facebook video' : 'TikTok video')}
             </Text>
             {media.author ? (
               <Text style={[typography.bodySmall, { color: colors.textSecondary, marginTop: spacing.xs }]} numberOfLines={1}>
-                {media.author}
+                @{media.author}
               </Text>
             ) : null}
           </View>
@@ -298,6 +332,14 @@ const styles = StyleSheet.create({
   errorBody: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxxl },
   errorText: { textAlign: 'center', marginTop: spacing.sm },
   errorAction: { marginTop: spacing.xl, minWidth: 180 },
+  platformChipSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+  },
   savedVideoHero: {
     alignItems: 'center',
     justifyContent: 'center',

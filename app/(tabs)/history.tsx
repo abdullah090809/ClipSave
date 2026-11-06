@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  Alert,
   Image,
   TextInput,
   Pressable,
@@ -29,6 +28,7 @@ import {
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { HistoryItem } from '../../src/types';
 import { TabHeader } from '../../src/components/TabHeader';
+import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 
 type SortOption = 'newest' | 'oldest' | 'size';
 
@@ -40,10 +40,19 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('newest');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(null);
   const [showItemMenu, setShowItemMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showTopMenu, setShowTopMenu] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<HistoryItem | null>(null);
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
+  const [infoDialog, setInfoDialog] = useState<{
+    title: string;
+    message: string;
+    icon?: keyof typeof Ionicons.glyphMap;
+    iconColor?: string;
+  } | null>(null);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -97,50 +106,30 @@ export default function HistoryScreen() {
   const handleCopyLink = useCallback(async (item: HistoryItem) => {
     if (item.sourceUrl) {
       await Clipboard.setStringAsync(item.sourceUrl);
-      Alert.alert('Link Copied', 'Original TikTok link copied to clipboard.');
+      setInfoDialog({
+        title: 'Link Copied',
+        message: 'Original video link was copied to your clipboard.',
+        icon: 'checkmark-circle-outline',
+      });
     } else {
-      Alert.alert('No URL', 'Source link is unavailable for this item.');
+      setInfoDialog({
+        title: 'No URL Available',
+        message: 'Source link is unavailable for this saved item.',
+        icon: 'alert-circle-outline',
+      });
     }
   }, []);
 
   const handleDeleteFile = useCallback(
     (item: HistoryItem) => {
-      Alert.alert(
-        'Delete from Device?',
-        `Permanently delete "${item.title || 'this video'}" and its file from storage?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: async () => {
-              await deleteHistoryEntryAndFile(item.id);
-              loadHistory();
-            },
-          },
-        ]
-      );
+      setItemToDelete(item);
     },
-    [loadHistory]
+    []
   );
 
   const handleClearAll = useCallback(() => {
-    Alert.alert(
-      'Clear All History?',
-      'Permanently delete all downloaded videos and history? This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear All',
-          style: 'destructive',
-          onPress: async () => {
-            await clearHistoryAndFiles();
-            loadHistory();
-          },
-        },
-      ]
-    );
-  }, [loadHistory]);
+    setShowClearAllDialog(true);
+  }, []);
 
   const topMenuActions: SheetAction[] = [
     {
@@ -247,21 +236,27 @@ export default function HistoryScreen() {
               styles.searchBar,
               {
                 backgroundColor: colors.inputBackground,
-                borderColor: colors.inputBorder,
+                borderColor: isSearchFocused ? colors.primary : colors.inputBorder,
               },
             ]}
           >
-            <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
+            <Ionicons
+              name="search-outline"
+              size={18}
+              color={isSearchFocused ? colors.primary : colors.textSecondary}
+            />
             <TextInput
               style={[
                 styles.searchInput,
                 typography.body,
                 { color: colors.textPrimary },
               ]}
-              placeholder="Search videos..."
+              placeholder="Search saved videos..."
               placeholderTextColor={colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
               autoCapitalize="none"
               autoCorrect={false}
               accessibilityLabel="Search saved videos"
@@ -269,16 +264,17 @@ export default function HistoryScreen() {
             {searchQuery.length > 0 && (
               <Pressable
                 onPress={() => setSearchQuery('')}
-                hitSlop={8}
+                hitSlop={10}
+                style={styles.clearSearchBtn}
                 accessibilityRole="button"
                 accessibilityLabel="Clear search query"
               >
-                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
               </Pressable>
             )}
           </View>
 
-          {/* Filter Chip Button */}
+          {/* Sort / Filter Chip Button with active state display */}
           <Pressable
             onPress={() => setShowFilterMenu(true)}
             android_ripple={{ color: colors.ripple }}
@@ -286,16 +282,17 @@ export default function HistoryScreen() {
               styles.filterButton,
               {
                 backgroundColor: colors.surfaceContainer,
-                borderColor: colors.outlineVariant,
+                borderColor: colors.surfaceBorder,
               },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Filter and sort saved videos"
+            accessibilityLabel={`Filter and sort saved videos, current sort: ${sortOption}`}
           >
-            <Ionicons name="filter-outline" size={16} color={colors.textPrimary} />
-            <Text style={[typography.labelMedium, { color: colors.textPrimary, marginLeft: 4 }]}>
-              Filter
+            <Ionicons name="swap-vertical" size={15} color={colors.primary} />
+            <Text style={[typography.labelMedium, { color: colors.textPrimary, marginLeft: 4, fontWeight: '600' }]}>
+              {sortOption === 'newest' ? 'Newest' : sortOption === 'oldest' ? 'Oldest' : 'Size'}
             </Text>
+            <Ionicons name="chevron-down" size={14} color={colors.textMuted} style={{ marginLeft: 2 }} />
           </Pressable>
         </View>
 
@@ -308,7 +305,7 @@ export default function HistoryScreen() {
                 { backgroundColor: colors.surfaceContainer, borderColor: colors.surfaceBorder },
               ]}
             >
-              <Ionicons name="film-outline" size={36} color={colors.textMuted} />
+              <Ionicons name="film-outline" size={26} color={colors.textMuted} />
             </View>
             <Text
               style={[
@@ -325,11 +322,11 @@ export default function HistoryScreen() {
               ]}
             >
               {history.length === 0
-                ? 'Videos you download will appear here automatically.'
+                ? 'Videos and audio you download will appear here automatically.'
                 : 'Try adjusting your search terms or filter selection.'}
             </Text>
 
-            {history.length === 0 && (
+            {history.length === 0 ? (
               <Pressable
                 onPress={() => router.navigate('/')}
                 android_ripple={{ color: colors.ripplePrimary }}
@@ -340,6 +337,19 @@ export default function HistoryScreen() {
                 <Ionicons name="download-outline" size={18} color={colors.onPrimary} />
                 <Text style={[typography.labelMedium, { color: colors.onPrimary, fontWeight: '700' }]}>
                   Download Videos
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => setSearchQuery('')}
+                android_ripple={{ color: colors.ripple }}
+                style={[styles.emptyActionButton, { backgroundColor: colors.surfaceContainerHigh }]}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search filter"
+              >
+                <Ionicons name="refresh-outline" size={16} color={colors.textPrimary} />
+                <Text style={[typography.labelMedium, { color: colors.textPrimary, fontWeight: '600' }]}>
+                  Reset Filter
                 </Text>
               </Pressable>
             )}
@@ -361,7 +371,7 @@ export default function HistoryScreen() {
               accessibilityLabel={`Saved video: ${item.title || (item.platform === 'youtube' ? 'YouTube video' : item.platform === 'instagram' ? 'Instagram video' : item.platform === 'facebook' ? 'Facebook video' : 'TikTok video')}`}
             >
               {/* Thumbnail with duration badge and play icon overlay */}
-              <View style={styles.thumbnailWrapper}>
+              <View style={[styles.thumbnailWrapper, { backgroundColor: colors.surfaceContainerHighest }]}>
                 {item.thumbnailUrl ? (
                   <Image
                     source={{ uri: item.thumbnailUrl }}
@@ -399,36 +409,43 @@ export default function HistoryScreen() {
                   {item.platform === 'youtube' || item.sourceUrl?.includes('youtu') ? (
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#EF4444' }]}>
                       <Ionicons name="logo-youtube" size={10} color="#EF4444" />
-                      <Text style={[typography.micro, { color: '#EF4444', fontSize: 9, marginLeft: 2 }]}>YouTube</Text>
+                      <Text style={[typography.micro, { color: '#EF4444', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>YouTube</Text>
                     </View>
                   ) : item.platform === 'instagram' || item.sourceUrl?.includes('instagram.com') || item.sourceUrl?.includes('instagr.am') ? (
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(225, 48, 108, 0.12)', borderColor: '#E1306C' }]}>
                       <Ionicons name="logo-instagram" size={10} color="#E1306C" />
-                      <Text style={[typography.micro, { color: '#E1306C', fontSize: 9, marginLeft: 2 }]}>Instagram</Text>
+                      <Text style={[typography.micro, { color: '#E1306C', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>Instagram</Text>
                     </View>
                   ) : item.platform === 'facebook' || item.sourceUrl?.includes('facebook.com') || item.sourceUrl?.includes('fb.watch') || item.sourceUrl?.includes('fb.com') ? (
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(24, 119, 242, 0.12)', borderColor: '#1877F2' }]}>
                       <Ionicons name="logo-facebook" size={10} color="#1877F2" />
-                      <Text style={[typography.micro, { color: '#1877F2', fontSize: 9, marginLeft: 2 }]}>Facebook</Text>
+                      <Text style={[typography.micro, { color: '#1877F2', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>Facebook</Text>
                     </View>
                   ) : (
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(6, 182, 212, 0.12)', borderColor: '#06B6D4' }]}>
                       <Ionicons name="musical-notes" size={10} color="#06B6D4" />
-                      <Text style={[typography.micro, { color: '#06B6D4', fontSize: 9, marginLeft: 2 }]}>TikTok</Text>
+                      <Text style={[typography.micro, { color: '#06B6D4', fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>TikTok</Text>
                     </View>
                   )}
                   {item.format === 'mp3' || item.format === 'm4a' ? (
                     <View style={[styles.platformChipSmall, { backgroundColor: 'rgba(168, 85, 247, 0.12)', borderColor: '#A855F7' }]}>
-                      <Text style={[typography.micro, { color: '#A855F7', fontSize: 9 }]}>MP3 Audio</Text>
+                      <Text style={[typography.micro, { color: '#A855F7', fontSize: 9, fontWeight: '700' }]}>MP3 Audio</Text>
                     </View>
                   ) : item.quality ? (
                     <View style={[styles.platformChipSmall, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant }]}>
-                      <Text style={[typography.micro, { color: colors.textSecondary, fontSize: 9 }]}>{item.quality}</Text>
+                      <Text style={[typography.micro, { color: colors.textSecondary, fontSize: 9, fontWeight: '600' }]}>{item.quality}</Text>
                     </View>
                   ) : null}
+
+                  {item.fileExists === false && (
+                    <View style={[styles.platformChipSmall, { backgroundColor: colors.dangerLight, borderColor: colors.dangerBorder }]}>
+                      <Ionicons name="alert-circle" size={9} color={colors.danger} />
+                      <Text style={[typography.micro, { color: colors.danger, fontSize: 9, marginLeft: 2, fontWeight: '700' }]}>Missing</Text>
+                    </View>
+                  )}
                 </View>
                 <Text
-                  style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '700' }]}
+                  style={[typography.bodyMedium, { color: colors.textPrimary, fontWeight: '600', lineHeight: 20 }]}
                   numberOfLines={2}
                 >
                   {item.title || 'Untitled Media'}
@@ -445,23 +462,72 @@ export default function HistoryScreen() {
                 </Text>
               </View>
 
-              {/* 3-Dots Action Menu */}
+              {/* 3-Dots Action Menu with 48dp Android Touch Target */}
               <Pressable
                 onPress={() => {
                   setSelectedItem(item);
                   setShowItemMenu(true);
                 }}
                 style={styles.dotsButton}
+                android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
                 accessibilityRole="button"
                 accessibilityLabel="Video options"
                 hitSlop={8}
               >
-                <Ionicons name="ellipsis-vertical" size={18} color={colors.textSecondary} />
+                <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
               </Pressable>
             </Pressable>
           ))
         )}
       </ScrollView>
+
+      {/* Theme-Aware Delete Single Video Dialog */}
+      <ConfirmDialog
+        visible={!!itemToDelete}
+        title="Delete from Device?"
+        message={`Permanently delete "${itemToDelete?.title || 'this video'}" and its file from storage?`}
+        icon="trash-outline"
+        confirmDestructive
+        confirmText="Delete"
+        cancelText="Cancel"
+        onCancel={() => setItemToDelete(null)}
+        onConfirm={async () => {
+          if (itemToDelete) {
+            await deleteHistoryEntryAndFile(itemToDelete.id);
+            setItemToDelete(null);
+            loadHistory();
+          }
+        }}
+      />
+
+      {/* Theme-Aware Clear All History Dialog */}
+      <ConfirmDialog
+        visible={showClearAllDialog}
+        title="Clear All History?"
+        message="Permanently delete all downloaded videos and history? This cannot be undone."
+        icon="trash-outline"
+        confirmDestructive
+        confirmText="Clear All"
+        cancelText="Cancel"
+        onCancel={() => setShowClearAllDialog(false)}
+        onConfirm={async () => {
+          await clearHistoryAndFiles();
+          setShowClearAllDialog(false);
+          loadHistory();
+        }}
+      />
+
+      {/* Theme-Aware Info Dialog (Replaces white system Alert.alert) */}
+      <ConfirmDialog
+        visible={!!infoDialog}
+        title={infoDialog?.title || ''}
+        message={infoDialog?.message || ''}
+        icon={infoDialog?.icon}
+        iconColor={infoDialog?.iconColor}
+        cancelText={null}
+        confirmText="Got it"
+        onConfirm={() => setInfoDialog(null)}
+      />
 
       {/* Top Header Overflow Menu */}
       <BottomSheetMenu
@@ -509,24 +575,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: borderRadius.lg,
-    paddingHorizontal: spacing.md,
-    minHeight: 46,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.sm + 2,
+    minHeight: 42,
     gap: spacing.xs,
   },
   searchInput: {
     flex: 1,
-    height: 42,
+    height: 38,
     paddingVertical: 0,
   },
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.sm + 4,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
-    minHeight: 46,
+    minHeight: 42,
   },
   historyCard: {
     flexDirection: 'row',
@@ -599,18 +665,27 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.full,
     borderWidth: 1,
   },
-  dotsButton: {
+  clearSearchBtn: {
     padding: spacing.xs,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dotsButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.xxl,
+    paddingVertical: spacing.xl,
   },
   emptyIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -620,8 +695,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: 10,
     borderRadius: borderRadius.md,
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
+    minHeight: 44,
   },
 });

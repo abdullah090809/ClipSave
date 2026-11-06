@@ -106,11 +106,7 @@ export interface SaveMediaResult {
  */
 export async function ensureMediaLibraryPermissions(): Promise<boolean> {
   try {
-    let perm = await MediaLibrary.getPermissionsAsync();
-    if (perm?.granted || perm?.status === 'granted') {
-      return true;
-    }
-    perm = await MediaLibrary.requestPermissionsAsync();
+    let perm = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
     if (perm?.granted || perm?.status === 'granted') {
       return true;
     }
@@ -187,9 +183,9 @@ export async function saveCompletedMedia(
 
     // Request media library permissions if needed, but do not block attempting save
     try {
-      const perm = await MediaLibrary.getPermissionsAsync();
+      const perm = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
       if (!perm?.granted && perm?.status !== 'granted') {
-        await MediaLibrary.requestPermissionsAsync();
+        await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
       }
     } catch {
       // In Expo Go or sandboxed environments, getPermissionsAsync may throw.
@@ -367,9 +363,9 @@ export async function saveOrExportToGallery(fileUri: string): Promise<boolean> {
     }
 
     try {
-      const perm = await MediaLibrary.getPermissionsAsync();
+      const perm = await MediaLibrary.getPermissionsAsync(false, ['photo', 'video']);
       if (!perm?.granted && perm?.status !== 'granted') {
-        await MediaLibrary.requestPermissionsAsync();
+        await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
       }
     } catch {
       // Best-effort permission check
