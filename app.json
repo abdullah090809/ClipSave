@@ -28,7 +28,11 @@
         "READ_MEDIA_VIDEO",
         "READ_MEDIA_IMAGES",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_DATA_SYNC",
+        "WAKE_LOCK",
+        "POST_NOTIFICATIONS"
       ],
       "intentFilters": [
         {
@@ -51,6 +55,13 @@
           "photosPermission": "Allow ClipSave to access your gallery to save videos.",
           "savePhotosPermission": "Allow ClipSave to save videos to your gallery.",
           "granularPermissions": ["photo", "video"]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/clipsave-logo.png",
+          "color": "#FE2C55"
         }
       ]
     ],

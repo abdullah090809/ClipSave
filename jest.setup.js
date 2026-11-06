@@ -46,3 +46,27 @@ jest.mock('expo-sharing', () => ({
 jest.mock('expo-intent-launcher', () => ({
   startActivityAsync: jest.fn(async () => ({ resultCode: -1 })),
 }));
+
+// Mock expo-notifications
+jest.mock('expo-notifications', () => ({
+  setNotificationHandler: jest.fn(),
+  setNotificationChannelAsync: jest.fn(async () => {}),
+  scheduleNotificationAsync: jest.fn(async () => 'mock-notification-id'),
+  dismissNotificationAsync: jest.fn(async () => {}),
+  getPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+  AndroidImportance: {
+    LOW: 2,
+    DEFAULT: 3,
+    HIGH: 4,
+  },
+  AndroidNotificationVisibility: {
+    PUBLIC: 1,
+  },
+}));
+
+// Mock expo-keep-awake
+jest.mock('expo-keep-awake', () => ({
+  activateKeepAwakeAsync: jest.fn(async () => {}),
+  deactivateKeepAwake: jest.fn(),
+}));

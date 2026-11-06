@@ -244,4 +244,36 @@ describe('downloadEngine', () => {
     const job2State = queueAfterFinish.find((j) => j.id === job2Id)?.state;
     expect(['DOWNLOADING', 'FINALIZING', 'COMPLETED']).toContain(job2State);
   });
+
+  test('UT-DL-10: isResumeSupported detects platform capabilities correctly', () => {
+    const { isResumeSupported } = require('./downloadEngine');
+    expect(isResumeSupported({ media: { platform: 'tiktok', format: 'mp4' } })).toBe(true);
+    expect(isResumeSupported({ media: { platform: 'instagram', format: 'mp4' } })).toBe(true);
+    expect(isResumeSupported({ media: { platform: 'facebook', format: 'mp4' } })).toBe(true);
+    expect(isResumeSupported({ media: { platform: 'youtube', format: 'mp3' } })).toBe(true);
+    expect(isResumeSupported({ media: { platform: 'youtube', format: 'mp4' } })).toBe(false);
+  });
+
+  test('UT-DL-11: retryDownload preserves downloaded bytes and passes resume offset to createDownloadResumable', async () => {
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+      exists: true,
+      isDirectory: false,
+      size: 3200000,
+    });
+
+    const jobId = await startDownload(sampleMedia);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Simulate retrying with 3.2MB already on disk
+    await retryDownload(jobId);
+
+    const queue = getQueue();
+    const retriedJob = queue.find((j) => j.id === jobId);
+    expect(retriedJob?.bytesDownloaded).toBe(3200000);
+    expect(retriedJob?.supportsResume).toBe(true);
+
+    // Verify createDownloadResumable received resumeData offset
+    const lastCall = (FileSystem.createDownloadResumable as jest.Mock).mock.calls.slice(-1)[0];
+    expect(lastCall[4]).toBe('3200000');
+  });
 });
