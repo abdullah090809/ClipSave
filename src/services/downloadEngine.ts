@@ -166,6 +166,14 @@ async function executeDownloadStream(
       speedBytesPerSecond: 0,
     });
 
+    const currentJob = getQueue().find((j) => j.id === jobId);
+    const estimatedTotal =
+      currentJob?.totalBytes && currentJob.totalBytes > 0
+        ? currentJob.totalBytes
+        : currentJob?.media.estimatedSizeBytes && currentJob.media.estimatedSizeBytes > 0
+        ? currentJob.media.estimatedSizeBytes
+        : undefined;
+
     const speedTracker = createSpeedTracker(0.25);
     let lastProgressTime = 0;
     const callback = (data: FileSystem.DownloadProgressData) => {
@@ -174,7 +182,7 @@ async function executeDownloadStream(
         data.totalBytesExpectedToWrite > 0 &&
         data.totalBytesWritten >= data.totalBytesExpectedToWrite;
 
-      if (!isComplete && now - lastProgressTime < 120) {
+      if (!isComplete && now - lastProgressTime < 150) {
         return;
       }
       lastProgressTime = now;
@@ -184,19 +192,15 @@ async function executeDownloadStream(
       const totalBytes =
         data.totalBytesExpectedToWrite > 0
           ? data.totalBytesExpectedToWrite
-          : undefined;
+          : estimatedTotal;
 
       updateJobInQueue(jobId, {
         bytesDownloaded,
         totalBytes,
         speedBytesPerSecond: speed,
-        statusMessage: totalBytes
-          ? `Downloading...`
-          : `Downloading (stream)...`,
+        statusMessage: 'Downloading...',
       });
     };
-
-    const currentJob = getQueue().find((j) => j.id === jobId);
 
     // Ensure secure HTTPS URL on Android for remote production domains (preserve HTTP for local IPs)
     let targetUrl = mediaUrl;
@@ -288,9 +292,13 @@ async function executeDownloadStream(
           tempPath,
           directHeaders ? { headers: directHeaders } : {},
           (data) => {
+            const fallbackTotal =
+              data.totalBytesExpectedToWrite > 0
+                ? data.totalBytesExpectedToWrite
+                : jobAfterError.totalBytes ?? jobAfterError.media.estimatedSizeBytes;
             updateJobInQueue(jobId, {
               bytesDownloaded: data.totalBytesWritten,
-              totalBytes: data.totalBytesExpectedToWrite > 0 ? data.totalBytesExpectedToWrite : undefined,
+              totalBytes: fallbackTotal,
               statusMessage: 'Downloading...',
             });
           }

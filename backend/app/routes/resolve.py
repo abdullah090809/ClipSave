@@ -147,12 +147,22 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 if header_str:
                     header_args = ["-headers", header_str]
 
+            network_args = [
+                "-reconnect", "1",
+                "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "5",
+            ]
+
             cmd = [
                 ffmpeg_bin,
                 "-y",
+                "-analyzeduration", "1000000",
+                "-probesize", "1000000",
                 *header_args,
+                *network_args,
                 "-i", upstream_url,
                 *header_args,
+                *network_args,
                 "-i", audio_url,
                 "-c", "copy",
                 "-movflags", "frag_keyframe+empty_moov",
@@ -168,7 +178,7 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             async def ffmpeg_stream_generator():
                 try:
                     while True:
-                        chunk = await proc.stdout.read(262144)
+                        chunk = await proc.stdout.read(524288)
                         if not chunk:
                             break
                         yield chunk
@@ -180,13 +190,17 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                             pass
                     await proc.wait()
 
+            stream_resp_headers = {
+                "Content-Type": "video/mp4",
+                "Accept-Ranges": "none",
+            }
+            if session.get("estimated_size"):
+                stream_resp_headers["X-Estimated-Content-Length"] = str(session["estimated_size"])
+
             return StreamingResponse(
                 ffmpeg_stream_generator(),
                 media_type="video/mp4",
-                headers={
-                    "Content-Type": "video/mp4",
-                    "Accept-Ranges": "none",
-                },
+                headers=stream_resp_headers,
             )
         except Exception as ffmpeg_err:
             log_safe_error("Live ffmpeg remux failed, falling back to direct video stream", ffmpeg_err, upstream_url)
@@ -240,7 +254,7 @@ async def stream_media_endpoint(stream_id: str, request: Request):
 
         async def chunk_generator():
             try:
-                async for chunk in resp.aiter_bytes(chunk_size=262144):
+                async for chunk in resp.aiter_bytes(chunk_size=524288):
                     yield chunk
             finally:
                 await resp.aclose()

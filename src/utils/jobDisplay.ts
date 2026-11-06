@@ -15,10 +15,25 @@ export function jobBucket(job: DownloadJob): JobBucket {
   }
 }
 
-/** 0..1 when the total size is known, otherwise undefined (indeterminate). */
+/** 0..1 when the total size (or estimated size) is known, otherwise undefined (indeterminate). */
 export function jobProgressFraction(job: DownloadJob): number | undefined {
-  if (!job.totalBytes || job.totalBytes <= 0) return undefined;
-  return Math.min(Math.max(job.bytesDownloaded / job.totalBytes, 0), 1);
+  if (job.state === 'COMPLETED') {
+    return 1;
+  }
+
+  const total =
+    job.totalBytes && job.totalBytes > 0
+      ? job.totalBytes
+      : job.media?.estimatedSizeBytes && job.media.estimatedSizeBytes > 0
+      ? job.media.estimatedSizeBytes
+      : undefined;
+
+  if (!total || total <= 0) return undefined;
+
+  const fraction = job.bytesDownloaded / total;
+  // If totalBytes is explicitly set, clamp to 1. If only estimatedSizeBytes is known, cap at 0.98 until COMPLETED.
+  const hasExactTotal = Boolean(job.totalBytes && job.totalBytes > 0);
+  return Math.min(Math.max(fraction, 0), hasExactTotal ? 1 : 0.98);
 }
 
 export function jobStatusLabel(job: DownloadJob): string {
@@ -43,13 +58,20 @@ export function jobStatusLabel(job: DownloadJob): string {
   }
 }
 
-/** Real byte counts only: never invents a total or a percentage. */
+/** Real byte counts or estimated total: formats byte progress cleanly. */
 export function jobProgressDetail(job: DownloadJob): string {
   const fraction = jobProgressFraction(job);
-  if (fraction === undefined) {
+  const total =
+    job.totalBytes && job.totalBytes > 0
+      ? job.totalBytes
+      : job.media?.estimatedSizeBytes && job.media.estimatedSizeBytes > 0
+      ? job.media.estimatedSizeBytes
+      : undefined;
+
+  if (fraction === undefined || !total) {
     return `${formatBytes(job.bytesDownloaded)} received`;
   }
-  return `${formatBytes(job.bytesDownloaded)} of ${formatBytes(job.totalBytes)} · ${Math.round(fraction * 100)}%`;
+  return `${formatBytes(job.bytesDownloaded)} of ${formatBytes(total)} · ${Math.round(fraction * 100)}%`;
 }
 
 /** Changes only when something other than byte progress changes. */

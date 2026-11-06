@@ -54,7 +54,7 @@ const QueueJobCard = memo(function QueueJobCard({
   const isFailed = job.state === 'FAILED' || job.state === 'CANCELLED';
 
   const knownFraction = jobProgressFraction(job);
-  const percent = Math.min(100, Math.max(0, Math.round((knownFraction ?? 0) * 100)));
+  const percent = isDone ? 100 : Math.min(99, Math.max(0, Math.round((knownFraction ?? 0) * 100)));
   const totalBytes = job.totalBytes ?? job.media.estimatedSizeBytes;
   const qualityDisplay = job.media.quality === 'audio' ? 'Audio (MP3)' : (job.media.quality ? `${job.media.quality}` : '1080p');
   const speedText =
@@ -62,7 +62,9 @@ const QueueJobCard = memo(function QueueJobCard({
       ? ` • ${formatSpeed(job.speedBytesPerSecond)}`
       : '';
   const sizeText = totalBytes
-    ? `${formatBytes(job.bytesDownloaded || totalBytes)} • ${qualityDisplay}${speedText}`
+    ? (isActive
+        ? `${formatBytes(job.bytesDownloaded || 0)} / ${formatBytes(totalBytes)} • ${qualityDisplay}${speedText}`
+        : `${formatBytes(job.bytesDownloaded || totalBytes)} • ${qualityDisplay}${speedText}`)
     : `${formatBytes(job.bytesDownloaded || 0)} • ${qualityDisplay}${speedText}`;
 
   const handlePrimaryPill = () => {

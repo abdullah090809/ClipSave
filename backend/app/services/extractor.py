@@ -27,6 +27,7 @@ def register_stream_session(
     audio_url: Optional[str] = None,
     is_audio_only: bool = False,
     ext: str = "mp4",
+    estimated_size: Optional[int] = None,
 ) -> None:
     now = time.time()
     # Expire sessions older than 2 hours (7200 seconds)
@@ -48,6 +49,7 @@ def register_stream_session(
         "title": title,
         "is_audio_only": is_audio_only,
         "ext": ext,
+        "estimated_size": estimated_size,
         "created_at": now,
     }
 
@@ -62,10 +64,11 @@ def clear_stream_sessions() -> None:
 
 
 INVIDIOUS_INSTANCES = [
+    "https://invidious.projectsegfau.lt",
     "https://yt.chocolatemoo53.com",
-    "https://invidious.nerdvpn.de",
+    "https://invidious.protokolla.fi",
     "https://inv.nadeko.net",
-    "https://invidious.jing.rocks",
+    "https://invidious.nerdvpn.de",
     "https://invidious.privacydev.net",
 ]
 
@@ -148,6 +151,8 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
         "Referer": "https://www.youtube.com/",
     }
 
+    aud_bytes = _get_bytes(best_audio)
+
     for key, label, vid, note in [
         ("1080p", "1080p Full HD", vid_1080, "Full HD"),
         ("720p", "720p HD", vid_720, "HD"),
@@ -155,8 +160,22 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
     ]:
         if vid and vid.get("url"):
             vid_url = _normalize_url(vid.get("url"))
+            vid_bytes = _get_bytes(vid)
+            total_est_bytes = (vid_bytes + (aud_bytes or 0)) if vid_bytes else None
+            if not total_est_bytes and duration:
+                bitrate_table = {"1080p": 450_000, "720p": 250_000, "360p": 100_000}
+                total_est_bytes = int(duration * bitrate_table.get(key, 250_000))
+
             sid = f"stream_{secrets.token_urlsafe(24)}"
-            register_stream_session(sid, vid_url, stream_headers, title, audio_url=audio_url, ext="mp4")
+            register_stream_session(
+                sid,
+                vid_url,
+                stream_headers,
+                title,
+                audio_url=audio_url,
+                ext="mp4",
+                estimated_size=total_est_bytes,
+            )
             formats.append(MediaFormatOption(
                 id=key,
                 label=label,
@@ -164,13 +183,22 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
                 extension="mp4",
                 isVideo=True,
                 mediaUrl=f"{host_prefix}/v1/stream/{sid}",
-                estimatedSizeBytes=_get_bytes(vid),
+                estimatedSizeBytes=total_est_bytes,
                 note=note
             ))
 
     if audio_url:
         sid = f"stream_{secrets.token_urlsafe(24)}"
-        register_stream_session(sid, audio_url, stream_headers, title, is_audio_only=True, ext="mp3")
+        total_aud = aud_bytes or (int(duration * 16_000) if duration else None)
+        register_stream_session(
+            sid,
+            audio_url,
+            stream_headers,
+            title,
+            is_audio_only=True,
+            ext="mp3",
+            estimated_size=total_aud,
+        )
         formats.append(MediaFormatOption(
             id="audio",
             label="Audio Only (MP3)",
@@ -178,7 +206,7 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
             extension="mp3",
             isVideo=False,
             mediaUrl=f"{host_prefix}/v1/stream/{sid}",
-            estimatedSizeBytes=_get_bytes(best_audio),
+            estimatedSizeBytes=total_aud,
             note="High Quality Audio"
         ))
 
