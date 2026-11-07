@@ -11,14 +11,15 @@ logging.basicConfig(
 
 def redact_url(url: str) -> str:
     """
-    Strips query parameters and fragment from URL for privacy-safe logging.
-    e.g. https://www.tiktok.com/@user/video/123?auth=secret -> https://www.tiktok.com/@user/video/123
+    Strips userinfo credentials, query parameters, and fragments from URL for privacy-safe logging.
+    e.g. https://user:pass@host/path?token=secret -> https://host/path
     """
     if not url:
         return ""
     try:
         parsed = urlparse(url)
-        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        port_suffix = f":{parsed.port}" if parsed.port and parsed.port not in (80, 443) else ""
+        return f"{parsed.scheme}://{parsed.hostname or 'unknown'}{port_suffix}{parsed.path}"
     except Exception:
         return "[REDACTED_URL]"
 

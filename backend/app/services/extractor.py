@@ -6,12 +6,17 @@ import asyncio
 import concurrent.futures
 import secrets
 import time
+import threading
 from typing import Optional, Dict, Any, List
 import yt_dlp
 
 from ..config import settings
 from ..models import ResolvedMediaResponse, MediaFormatOption
 from ..security.logging import log_safe_info, log_safe_error
+from ..security.ssrf import verify_url_ssrf_safety
+
+_cookie_lock = threading.Lock()
+_cached_cookie_path: Optional[str] = None
 
 # In-memory stream session registry for proxying protected streams
 # Bounded to prevent memory exhaustion under continuous load
@@ -86,12 +91,15 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
     data = None
     used_instance = None
     for inst in INVIDIOUS_INSTANCES:
+        is_safe, _ = verify_url_ssrf_safety(inst)
+        if not is_safe:
+            continue
         try:
             req = urllib.request.Request(
                 f"{inst}/api/v1/videos/{video_id}?local=true",
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
             )
-            with urllib.request.urlopen(req, timeout=5) as r:
+            with urllib.request.urlopen(req, timeout=3) as r:
                 if r.status == 200:
                     data = json.loads(r.read().decode())
                     used_instance = inst
@@ -314,15 +322,20 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
             except Exception:
                 pass
 
+    global _cached_cookie_path
     if master_cookie_data:
         import tempfile
-        try:
-            runtime_cookie = os.path.join(tempfile.gettempdir(), "clipsave_runtime_cookies.txt")
-            with open(runtime_cookie, "w", encoding="utf-8") as f:
-                f.write(master_cookie_data)
-            ydl_opts["cookiefile"] = runtime_cookie
-        except Exception:
-            pass
+        with _cookie_lock:
+            if not _cached_cookie_path or not os.path.exists(_cached_cookie_path):
+                try:
+                    runtime_cookie = os.path.join(tempfile.gettempdir(), f"clipsave_runtime_cookies_{os.getpid()}.txt")
+                    with open(runtime_cookie, "w", encoding="utf-8") as f:
+                        f.write(master_cookie_data)
+                    _cached_cookie_path = runtime_cookie
+                except Exception:
+                    pass
+        if _cached_cookie_path and os.path.exists(_cached_cookie_path):
+            ydl_opts["cookiefile"] = _cached_cookie_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -619,9 +632,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                     message="TikTok is temporarily rate-limiting requests. Please try again in a moment.",
                     status_code=429,
                 )
+            clean_err = re.sub(r'(/[\w.-]+)+', '[path]', str(e))
+            clean_err = re.sub(r'[A-Za-z]:\\[\w.-]+(\\[\w.-]+)*', '[path]', clean_err)
+            clean_err = re.sub(r'[?&][^=]+=[^& \n]+', '[param]', clean_err)
             raise ExtractionError(
                 code="EXTRACTOR_FAILED",
-                message=f"Could not resolve media metadata: {str(e)}",
+                message=f"Could not resolve media metadata: {clean_err[:180]}",
                 status_code=422,
             )
         except Exception as e:
@@ -679,6 +695,10 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     best_audio = m4a_audios[-1] if m4a_audios else (audio_formats[-1] if audio_formats else None)
     audio_url = best_audio.get("url") if best_audio else None
     audio_size = (best_audio.get("filesize") or best_audio.get("filesize_approx")) if best_audio else None
+    duration_sec = float(info.get("duration") or 0)
+    if not audio_size and best_audio and duration_sec > 0:
+        abr = best_audio.get("abr") or 128
+        audio_size = int((abr * 1000 / 8) * duration_sec)
 
     available_format_options: List[MediaFormatOption] = []
 
@@ -725,6 +745,13 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 v_url = fmt.get("url")
                 f_size = fmt.get("filesize") or fmt.get("filesize_approx")
                 total_estimated_size = (f_size or 0) + (audio_size or 0) if f_size else None
+                if not total_estimated_size and duration_sec > 0:
+                    tbr = fmt.get("tbr") or ((fmt.get("vbr") or 0) + (best_audio.get("abr") or 0 if best_audio else 0))
+                    if tbr and tbr > 0:
+                        total_estimated_size = int((tbr * 1000 / 8) * duration_sec)
+                    else:
+                        bitrate_table = {"1080p": 450_000, "720p": 250_000, "360p": 100_000}
+                        total_estimated_size = int(duration_sec * bitrate_table.get(quality_key, 250_000))
 
                 # If format has no audio, pair with audio_url for live ffmpeg remux
                 needs_audio_mux = fmt.get("acodec") == "none" and bool(audio_url)
@@ -739,6 +766,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                     title=title,
                     is_audio_only=False,
                     ext="mp4",
+                    estimated_size=total_estimated_size,
                 )
                 client_url = f"{base_url.rstrip('/')}/v1/stream/{stream_id}" if base_url else v_url
                 label = f"{quality_key} Full HD" if quality_key == "1080p" else (f"{quality_key} HD" if quality_key == "720p" else f"{quality_key} SD")
@@ -766,6 +794,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 title=title,
                 is_audio_only=True,
                 ext="mp3",
+                estimated_size=audio_size,
             )
             client_audio_url = f"{base_url.rstrip('/')}/v1/stream/{stream_id_audio}" if base_url else audio_url
             available_format_options.append(
@@ -807,6 +836,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
 
         media_url = selected_format.get("url") if selected_format else info.get("url")
         filesize = (selected_format.get("filesize") or selected_format.get("filesize_approx")) if selected_format else None
+        if not filesize and duration_sec > 0:
+            tbr = (selected_format.get("tbr") or selected_format.get("vbr")) if selected_format else None
+            if tbr and tbr > 0:
+                filesize = int((tbr * 1000 / 8) * duration_sec)
+            else:
+                filesize = int(duration_sec * 250_000)
 
         if not media_url:
             raise ExtractionError(
@@ -835,6 +870,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             title=title,
             is_audio_only=False,
             ext="mp4",
+            estimated_size=total_estimated_size,
         )
         client_video_url = f"{base_url.rstrip('/')}/v1/stream/{stream_id_video}" if base_url else media_url
         video_label = (
@@ -866,6 +902,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             title=title,
             is_audio_only=True,
             ext="mp3",
+            estimated_size=audio_size or (filesize // 5 if filesize else None),
         )
         client_audio_url = f"{base_url.rstrip('/')}/v1/stream/{stream_id_audio}" if base_url else (audio_url or media_url)
         available_format_options.append(

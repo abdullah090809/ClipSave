@@ -30,16 +30,10 @@ const activeDownloadSessions = new Map<string, FileSystem.DownloadResumable>();
 
 /**
  * Determines whether a given job supports HTTP Range resumable streaming.
- * Direct CDN streams (TikTok, Instagram, Facebook) and progressive audio streams
- * support HTTP 206 Partial Content byte ranges.
- * YouTube video streams currently use live ffmpeg DASH remuxing on the backend,
- * which outputs dynamic unseekable pipe streams (Accept-Ranges: none) until the
- * backend range-caching audit is completed.
+ * Direct CDN streams (TikTok, Instagram, Facebook), progressive audio streams,
+ * and backend-buffered composite YouTube streams all support HTTP 206 Partial Content byte ranges.
  */
-export function isResumeSupported(job: Pick<DownloadJob, 'media'>): boolean {
-  if (job.media.platform === 'youtube' && job.media.format !== 'mp3') {
-    return false;
-  }
+export function isResumeSupported(_job: Pick<DownloadJob, 'media'>): boolean {
   return true;
 }
 

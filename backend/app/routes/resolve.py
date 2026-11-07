@@ -6,18 +6,23 @@ from urllib.parse import urljoin
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
+from ..config import settings
 from ..models import ResolveRequest, ResolvedMediaResponse, ErrorResponse
 from ..security.url_validation import validate_media_url
 from ..security.ssrf import verify_url_ssrf_safety
-from ..security.rate_limit import rate_limit_dependency
+from ..security.rate_limit import rate_limit_dependency, stream_rate_limit_dependency
 from ..security.logging import log_safe_info, log_safe_error
 from ..services.extractor import (
     extract_media_metadata,
     get_stream_session,
     ExtractionError,
 )
+from ..services.stream_cache import stream_cache_manager
 
 router = APIRouter(prefix="/v1", tags=["resolve"])
+
+# Bounded streaming semaphore across all concurrent active downloads to prevent container OOM
+_streaming_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_STREAMS)
 
 
 @router.post(
@@ -95,7 +100,7 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
         )
 
 
-@router.api_route("/stream/{stream_id}", methods=["GET", "HEAD"])
+@router.api_route("/stream/{stream_id}", methods=["GET", "HEAD"], dependencies=[Depends(stream_rate_limit_dependency)])
 async def stream_media_endpoint(stream_id: str, request: Request):
     """
     Proxies media stream with Range header support, SSRF redirect defense,
@@ -135,75 +140,23 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 detail={"code": "SSRF_RESTRICTED", "message": "Audio stream host is not permitted.", "requestId": req_id},
             )
 
-        ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
         try:
-            header_args = []
-            if upstream_headers:
-                header_str = "".join([
-                    f"{k}: {v}\r\n"
-                    for k, v in upstream_headers.items()
-                    if k.lower() in ("user-agent", "cookie", "referer")
-                ])
-                if header_str:
-                    header_args = ["-headers", header_str]
+            # Periodic storage cap & TTL maintenance
+            stream_cache_manager.prune_cache()
 
-            network_args = [
-                "-reconnect", "1",
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
-            ]
-
-            cmd = [
-                ffmpeg_bin,
-                "-y",
-                "-analyzeduration", "1000000",
-                "-probesize", "1000000",
-                *header_args,
-                *network_args,
-                "-i", upstream_url,
-                *header_args,
-                *network_args,
-                "-i", audio_url,
-                "-c", "copy",
-                "-movflags", "frag_keyframe+empty_moov",
-                "-f", "mp4",
-                "pipe:1",
-            ]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+            job = await stream_cache_manager.get_or_create_job(
+                stream_id=stream_id,
+                media_url=upstream_url,
+                audio_url=audio_url,
+                headers=upstream_headers,
+                estimated_size=session.get("estimated_size"),
+                semaphore=_streaming_semaphore,
             )
-
-            async def ffmpeg_stream_generator():
-                try:
-                    while True:
-                        chunk = await proc.stdout.read(524288)
-                        if not chunk:
-                            break
-                        yield chunk
-                finally:
-                    if proc.returncode is None:
-                        try:
-                            proc.kill()
-                        except (ProcessLookupError, OSError):
-                            pass
-                    await proc.wait()
-
-            stream_resp_headers = {
-                "Content-Type": "video/mp4",
-                "Accept-Ranges": "none",
-            }
-            if session.get("estimated_size"):
-                stream_resp_headers["X-Estimated-Content-Length"] = str(session["estimated_size"])
-
-            return StreamingResponse(
-                ffmpeg_stream_generator(),
-                media_type="video/mp4",
-                headers=stream_resp_headers,
-            )
+            return await stream_cache_manager.serve_stream(job, request, req_id)
+        except HTTPException:
+            raise
         except Exception as ffmpeg_err:
-            log_safe_error("Live ffmpeg remux failed, falling back to direct video stream", ffmpeg_err, upstream_url)
+            log_safe_error("Cached remux failed, falling back to direct video stream", ffmpeg_err, upstream_url)
             # Gracefully proceed to direct stream fallback below
 
     # CASE 2: Direct progressive video or direct audio stream proxy
@@ -211,7 +164,15 @@ async def stream_media_endpoint(stream_id: str, request: Request):
     if client_range:
         upstream_headers["Range"] = client_range
 
-    client = httpx.AsyncClient(timeout=60.0, follow_redirects=False)
+    # Prefer shared client pool from lifespan, fallback to local client if not available
+    shared_client = getattr(request.app.state, "http_client", None)
+    is_local_client = False
+    if shared_client is not None and not shared_client.is_closed:
+        client = shared_client
+    else:
+        client = httpx.AsyncClient(timeout=60.0, follow_redirects=False)
+        is_local_client = True
+
     MAX_REDIRECTS = 5
     current_url = upstream_url
 
@@ -225,7 +186,8 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 location = resp.headers.get("location")
                 await resp.aclose()
                 if not location:
-                    await client.aclose()
+                    if is_local_client:
+                        await client.aclose()
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail={"code": "STREAM_REDIRECT_ERROR", "message": "Redirect response missing Location header.", "requestId": req_id},
@@ -235,7 +197,8 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 is_redir_safe, redir_err = verify_url_ssrf_safety(redirect_url)
                 if not is_redir_safe:
                     log_safe_error("SSRF redirect blocked in stream proxy", Exception(redir_err), redirect_url)
-                    await client.aclose()
+                    if is_local_client:
+                        await client.aclose()
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={"code": "SSRF_RESTRICTED", "message": "Redirect target is restricted.", "requestId": req_id},
@@ -246,19 +209,25 @@ async def stream_media_endpoint(stream_id: str, request: Request):
         else:
             if resp:
                 await resp.aclose()
-            await client.aclose()
+            if is_local_client:
+                await client.aclose()
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail={"code": "TOO_MANY_REDIRECTS", "message": "Too many upstream redirects encountered.", "requestId": req_id},
             )
 
+        chunk_size = settings.CHUNK_SIZE_BYTES
+
         async def chunk_generator():
+            await _streaming_semaphore.acquire()
             try:
-                async for chunk in resp.aiter_bytes(chunk_size=524288):
+                async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
                     yield chunk
             finally:
+                _streaming_semaphore.release()
                 await resp.aclose()
-                await client.aclose()
+                if is_local_client:
+                    await client.aclose()
 
         content_type = (
             "audio/mpeg"
@@ -277,7 +246,8 @@ async def stream_media_endpoint(stream_id: str, request: Request):
 
         if request.method == "HEAD":
             await resp.aclose()
-            await client.aclose()
+            if is_local_client:
+                await client.aclose()
             return Response(
                 status_code=resp.status_code,
                 headers=response_headers,
@@ -291,7 +261,8 @@ async def stream_media_endpoint(stream_id: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        await client.aclose()
+        if is_local_client:
+            await client.aclose()
         log_safe_error("Streaming proxy failed", e, current_url)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

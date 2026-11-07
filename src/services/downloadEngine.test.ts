@@ -251,7 +251,7 @@ describe('downloadEngine', () => {
     expect(isResumeSupported({ media: { platform: 'instagram', format: 'mp4' } })).toBe(true);
     expect(isResumeSupported({ media: { platform: 'facebook', format: 'mp4' } })).toBe(true);
     expect(isResumeSupported({ media: { platform: 'youtube', format: 'mp3' } })).toBe(true);
-    expect(isResumeSupported({ media: { platform: 'youtube', format: 'mp4' } })).toBe(false);
+    expect(isResumeSupported({ media: { platform: 'youtube', format: 'mp4' } })).toBe(true);
   });
 
   test('UT-DL-11: retryDownload preserves downloaded bytes and passes resume offset to createDownloadResumable', async () => {
