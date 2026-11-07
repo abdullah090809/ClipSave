@@ -129,7 +129,6 @@ class StreamRemuxJob:
         
         cache_dir = get_cache_dir()
         self.final_file = cache_dir / f"{stream_id}.mp4"
-        self.tmp_file = cache_dir / f"{stream_id}.mp4.tmp"
         
         self.is_complete = False
         self.error: Optional[Exception] = None
@@ -139,9 +138,8 @@ class StreamRemuxJob:
         self.condition = asyncio.Condition()
 
     async def start(self, semaphore: asyncio.Semaphore):
-        """Executes FFmpeg remux pipeline writing to self.tmp_file."""
-        if self.final_file.exists() and self.final_file.stat().st_size > 0:
-            self.is_complete = True
+        """Executes FFmpeg remux pipeline writing directly to self.final_file."""
+        if self.final_file.exists() and self.final_file.stat().st_size > 0 and self.is_complete:
             self.bytes_written = self.final_file.stat().st_size
             return
 
@@ -179,7 +177,7 @@ class StreamRemuxJob:
             "-c", "copy",
             "-movflags", "frag_keyframe+empty_moov+default_base_moof",
             "-f", "mp4",
-            str(self.tmp_file),
+            str(self.final_file),
         ]
 
         await semaphore.acquire()
@@ -193,8 +191,8 @@ class StreamRemuxJob:
             # Monitor file growth while process is running
             while self.process.returncode is None:
                 await asyncio.sleep(0.15)
-                if self.tmp_file.exists():
-                    current_size = self.tmp_file.stat().st_size
+                if self.final_file.exists():
+                    current_size = self.final_file.stat().st_size
                     if current_size != self.bytes_written:
                         self.bytes_written = current_size
                         self.last_activity = time.time()
@@ -218,11 +216,7 @@ class StreamRemuxJob:
 
             await self.process.wait()
 
-            if self.process.returncode == 0 and self.tmp_file.exists():
-                # Atomically promote .tmp to final .mp4
-                if self.final_file.exists():
-                    self.final_file.unlink()
-                self.tmp_file.rename(self.final_file)
+            if self.process.returncode == 0 and self.final_file.exists():
                 self.bytes_written = self.final_file.stat().st_size
                 self.is_complete = True
                 self.last_activity = time.time()
@@ -232,17 +226,17 @@ class StreamRemuxJob:
                 err_msg = f"FFmpeg remux process exited with code {self.process.returncode} (stderr: {stderr_clean})"
                 logger.error(f"{err_msg} for {self.stream_id}")
                 self.error = Exception(err_msg)
-                if self.tmp_file.exists():
+                if self.final_file.exists() and not self.is_complete:
                     try:
-                        self.tmp_file.unlink()
+                        self.final_file.unlink()
                     except Exception:
                         pass
         except Exception as e:
             logger.error(f"Remux failed for {self.stream_id}: {e}")
             self.error = e
-            if self.tmp_file.exists():
+            if self.final_file.exists() and not self.is_complete:
                 try:
-                    self.tmp_file.unlink()
+                    self.final_file.unlink()
                 except Exception:
                     pass
         finally:
@@ -268,13 +262,25 @@ class StreamCacheManager:
         estimated_size: Optional[int],
         semaphore: asyncio.Semaphore,
     ) -> StreamRemuxJob:
-        """Get an existing job or start a new background remux job."""
+        """Get an existing job or start a new background remux job, evicting any failed jobs."""
         cache_dir = get_cache_dir()
         final_file = cache_dir / f"{stream_id}.mp4"
         
         async with self._lock:
-            if stream_id in self._jobs:
-                return self._jobs[stream_id]
+            existing_job = self._jobs.get(stream_id)
+            if existing_job:
+                # If existing job has an error or died before completion, evict it!
+                if existing_job.error is not None or (existing_job.process and existing_job.process.returncode not in (None, 0)):
+                    logger.warning(f"Evicting failed job for {stream_id}: {existing_job.error}")
+                    self._jobs.pop(stream_id, None)
+                    self._tasks.pop(stream_id, None)
+                    if existing_job.final_file.exists():
+                        try:
+                            existing_job.final_file.unlink()
+                        except Exception:
+                            pass
+                else:
+                    return existing_job
 
             job = StreamRemuxJob(stream_id, media_url, audio_url, headers, estimated_size)
             if final_file.exists() and final_file.stat().st_size > 0:
@@ -320,8 +326,8 @@ class StreamCacheManager:
                 detail={"code": "STREAM_REMUX_FAILED", "message": str(job.error), "requestId": req_id}
             )
 
-        target_file = job.final_file if job.is_complete else job.tmp_file
-        if not target_file.exists():
+        target_file = job.final_file
+        if not target_file.exists() and not job.is_complete:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail={"code": "STREAM_FILE_MISSING", "message": "Stream buffer file could not be created.", "requestId": req_id}
@@ -332,7 +338,7 @@ class StreamCacheManager:
         # Parse range header if supplied
         range_spec = None
         if range_header:
-            effective_size_for_range = job.final_file.stat().st_size if job.is_complete else (job.estimated_size or target_file.stat().st_size)
+            effective_size_for_range = job.final_file.stat().st_size if job.is_complete else (job.estimated_size or (target_file.stat().st_size if target_file.exists() else 0))
             range_spec = parse_range_header(range_header, effective_size_for_range)
 
         # Build response headers
@@ -346,10 +352,11 @@ class StreamCacheManager:
         if range_spec:
             start, end = range_spec
             
-            # If start is beyond currently available bytes on an in-progress file, wait for writer
-            if not job.is_complete and target_file.stat().st_size <= start:
-                wait_start_limit = time.time() + 30.0
-                while not job.is_complete and target_file.stat().st_size <= start and not job.error:
+            # If start is beyond currently available bytes on an in-progress file, wait for writer up to a limit
+            current_size = target_file.stat().st_size if target_file.exists() else 0
+            if not job.is_complete and current_size <= start:
+                wait_start_limit = time.time() + 15.0
+                while not job.is_complete and (not target_file.exists() or target_file.stat().st_size <= start) and not job.error:
                     if time.time() > wait_start_limit:
                         break
                     async with job.condition:
@@ -358,16 +365,18 @@ class StreamCacheManager:
                         except (asyncio.TimeoutError, TimeoutError):
                             pass
 
-                if target_file.stat().st_size <= start:
+                current_size = target_file.stat().st_size if target_file.exists() else 0
+                if current_size <= start:
                     if job.is_complete:
                         raise HTTPException(
                             status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
-                            headers={"Content-Range": f"bytes */{job.final_file.stat().st_size}"},
+                            headers={"Content-Range": f"bytes */{current_size}"},
                             detail="Requested offset beyond file size."
                         )
                     raise HTTPException(
-                        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                        detail={"code": "STREAM_RANGE_WAIT_TIMEOUT", "message": "Timed out waiting for stream buffer to reach requested byte offset.", "requestId": req_id}
+                        status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+                        headers={"Content-Range": f"bytes */{current_size}"},
+                        detail="Requested byte offset not yet available in buffer. Restart from byte 0."
                     )
 
             content_length = end - start + 1
@@ -391,7 +400,7 @@ class StreamCacheManager:
                         chunk_to_read = min(CHUNK_SIZE_BYTES, remaining_to_send)
                         
                         # Wait if file is still growing and we caught up to current EOF
-                        while not job.is_complete and f.tell() >= target_file.stat().st_size and not job.error:
+                        while not job.is_complete and f.tell() >= (target_file.stat().st_size if target_file.exists() else 0) and not job.error:
                             async with job.condition:
                                 try:
                                     await asyncio.wait_for(job.condition.wait(), timeout=0.3)
@@ -446,7 +455,7 @@ class StreamCacheManager:
             async def progressive_file_generator() -> AsyncGenerator[bytes, None]:
                 with open(target_file, "rb") as f:
                     while True:
-                        while not job.is_complete and f.tell() >= target_file.stat().st_size and not job.error:
+                        while not job.is_complete and f.tell() >= (target_file.stat().st_size if target_file.exists() else 0) and not job.error:
                             async with job.condition:
                                 try:
                                     await asyncio.wait_for(job.condition.wait(), timeout=0.3)

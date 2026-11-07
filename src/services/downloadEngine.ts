@@ -328,6 +328,16 @@ async function executeDownloadStream(
     if (!result || (result.status !== 200 && result.status !== 206)) {
       activeDownloadSessions.delete(jobId);
 
+      // If server returned 416 Range Not Satisfiable, server cache lacks the offset.
+      // Reset partial bytes so the next retry restarts cleanly from 0% without looping!
+      if (result?.status === 416) {
+        try {
+          await FileSystem.deleteAsync(tempPath, { idempotent: true });
+        } catch {
+          // Ignore
+        }
+      }
+
       let partialBytes = 0;
       try {
         const fileInfo = await FileSystem.getInfoAsync(tempPath);
