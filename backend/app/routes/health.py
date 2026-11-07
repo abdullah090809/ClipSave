@@ -27,7 +27,7 @@ async def readiness_check():
     import shutil
     import subprocess
     import os
-    from ..services.stream_cache import get_cache_dir
+    from ..services.stream_cache import get_cache_dir, stream_cache_manager
     ff = shutil.which("ffmpeg")
     ver = None
     if ff:
@@ -43,4 +43,5 @@ async def readiness_check():
         "ffmpeg_version": ver,
         "cache_dir": cache_dir,
         "uid": os.getuid() if hasattr(os, "getuid") else None,
+        "last_remux_error": stream_cache_manager.last_error,
     }

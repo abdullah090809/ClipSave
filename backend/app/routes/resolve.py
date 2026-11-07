@@ -153,90 +153,14 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 semaphore=_streaming_semaphore,
             )
             return await stream_cache_manager.serve_stream(job, request, req_id)
-        except HTTPException as http_e:
-            if http_e.status_code in (status.HTTP_416_RANGE_NOT_SATISFIABLE, status.HTTP_400_BAD_REQUEST):
-                raise
-            log_safe_error("Cached remux failed, falling back to direct live remux pipe", http_e, upstream_url)
+        except HTTPException:
+            raise
         except Exception as ffmpeg_err:
-            log_safe_error("Cached remux failed, falling back to direct live remux pipe", ffmpeg_err, upstream_url)
-
-        # RESILIENT FALLBACK: If caching remux failed or disk constrained, stream directly via live ffmpeg stdout pipe
-        try:
-            ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
-            header_args = []
-            if upstream_headers:
-                header_str = "".join([
-                    f"{k}: {v}\r\n"
-                    for k, v in upstream_headers.items()
-                    if k.lower() in ("user-agent", "cookie", "referer")
-                ])
-                if header_str:
-                    header_args = ["-headers", header_str]
-
-            network_args = [
-                "-reconnect", "1",
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
-                "-rw_timeout", "15000000",
-            ]
-
-            cmd = [
-                ffmpeg_bin,
-                "-y",
-                "-protocol_whitelist", "file,http,https,tcp,tls,crypto,pipe",
-                "-analyzeduration", "1000000",
-                "-probesize", "1000000",
-                *header_args,
-                *network_args,
-                "-i", upstream_url,
-                *header_args,
-                *network_args,
-                "-i", audio_url,
-                "-c", "copy",
-                "-movflags", "frag_keyframe+empty_moov",
-                "-f", "mp4",
-                "pipe:1",
-            ]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+            log_safe_error("Cached remux failed", ffmpeg_err, upstream_url)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": "STREAM_REMUX_FAILED", "message": str(ffmpeg_err), "requestId": req_id}
             )
-
-            chunk_size = settings.CHUNK_SIZE_BYTES
-
-            async def ffmpeg_pipe_generator():
-                await _streaming_semaphore.acquire()
-                try:
-                    while True:
-                        chunk = await proc.stdout.read(chunk_size)
-                        if not chunk:
-                            break
-                        yield chunk
-                finally:
-                    _streaming_semaphore.release()
-                    if proc.returncode is None:
-                        try:
-                            proc.kill()
-                        except (ProcessLookupError, OSError):
-                            pass
-                    await proc.wait()
-
-            stream_resp_headers = {
-                "Content-Type": "video/mp4",
-                "Accept-Ranges": "none",
-            }
-            if session.get("estimated_size"):
-                stream_resp_headers["X-Estimated-Content-Length"] = str(session["estimated_size"])
-
-            return StreamingResponse(
-                ffmpeg_pipe_generator(),
-                media_type="video/mp4",
-                headers=stream_resp_headers,
-            )
-        except Exception as pipe_err:
-            log_safe_error("Live ffmpeg pipe fallback failed, falling back to direct video stream", pipe_err, upstream_url)
-            # Gracefully proceed to direct stream fallback below
 
     # CASE 2: Direct progressive video or direct audio stream proxy
     client_range = request.headers.get("range") or request.headers.get("Range")

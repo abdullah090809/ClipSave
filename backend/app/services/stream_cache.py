@@ -165,7 +165,8 @@ class StreamRemuxJob:
         cmd = [
             ffmpeg_bin,
             "-y",
-            "-protocol_whitelist", "file,http,https,tcp,tls,crypto,pipe",
+            "-nostdin",
+            "-protocol_whitelist", "file,http,https,tcp,tls,crypto,pipe,data",
             "-analyzeduration", "1000000",
             "-probesize", "1000000",
             *header_args,
@@ -181,12 +182,28 @@ class StreamRemuxJob:
         ]
 
         await semaphore.acquire()
+        drain_task = None
+        stderr_lines = []
         try:
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
+
+            async def drain_stderr():
+                try:
+                    while True:
+                        line = await self.process.stderr.readline()
+                        if not line:
+                            break
+                        if len(stderr_lines) > 25:
+                            stderr_lines.pop(0)
+                        stderr_lines.append(line.decode(errors="replace").strip())
+                except Exception:
+                    pass
+
+            drain_task = asyncio.create_task(drain_stderr())
 
             # Monitor file growth while process is running
             while self.process.returncode is None:
@@ -207,25 +224,25 @@ class StreamRemuxJob:
                 except (asyncio.TimeoutError, TimeoutError):
                     pass
 
-            stderr_data = b""
-            if self.process.stderr:
+            if drain_task and not drain_task.done():
                 try:
-                    stderr_data = await asyncio.wait_for(self.process.stderr.read(), timeout=1.0)
+                    await asyncio.wait_for(drain_task, timeout=1.0)
                 except Exception:
                     pass
 
             await self.process.wait()
 
-            if self.process.returncode == 0 and self.final_file.exists():
+            if self.process.returncode == 0 and self.final_file.exists() and self.final_file.stat().st_size > 0:
                 self.bytes_written = self.final_file.stat().st_size
                 self.is_complete = True
                 self.last_activity = time.time()
                 logger.info(f"Remux completed for {self.stream_id}: {self.bytes_written} bytes")
             else:
-                stderr_clean = stderr_data.decode(errors="replace")[-300:] if stderr_data else "None"
+                stderr_clean = " | ".join(stderr_lines[-5:]) if stderr_lines else "None"
                 err_msg = f"FFmpeg remux process exited with code {self.process.returncode} (stderr: {stderr_clean})"
                 logger.error(f"{err_msg} for {self.stream_id}")
                 self.error = Exception(err_msg)
+                stream_cache_manager.last_error = err_msg
                 if self.final_file.exists() and not self.is_complete:
                     try:
                         self.final_file.unlink()
@@ -234,12 +251,15 @@ class StreamRemuxJob:
         except Exception as e:
             logger.error(f"Remux failed for {self.stream_id}: {e}")
             self.error = e
+            stream_cache_manager.last_error = str(e)
             if self.final_file.exists() and not self.is_complete:
                 try:
                     self.final_file.unlink()
                 except Exception:
                     pass
         finally:
+            if drain_task and not drain_task.done():
+                drain_task.cancel()
             semaphore.release()
             async with self.condition:
                 self.condition.notify_all()
@@ -252,6 +272,7 @@ class StreamCacheManager:
         self._jobs: Dict[str, StreamRemuxJob] = {}
         self._tasks: Dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+        self.last_error: Optional[str] = None
 
     async def get_or_create_job(
         self,
