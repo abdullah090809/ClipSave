@@ -149,7 +149,15 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
 
     vid_1080 = _find_vid("1080")
     vid_720 = _find_vid("720")
+    vid_480 = _find_vid("480")
     vid_360 = _find_vid("360")
+    vid_240 = _find_vid("240")
+
+    fallback_vid = None
+    if not any([vid_1080, vid_720, vid_480, vid_360, vid_240]):
+        fallback_vid = next((f for f in adaptive if "video" in f.get("type", "") and f.get("container") == "mp4"), None)
+        if not fallback_vid:
+            fallback_vid = next((f for f in adaptive if "video" in f.get("type", "")), None)
 
     host_prefix = base_url.rstrip("/") if base_url else "http://localhost:8080"
     formats = []
@@ -161,18 +169,24 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
 
     aud_bytes = _get_bytes(best_audio)
 
-    for key, label, vid, note in [
+    candidates = [
         ("1080p", "1080p Full HD", vid_1080, "Full HD"),
         ("720p", "720p HD", vid_720, "HD"),
+        ("480p", "480p SD", vid_480, "SD"),
         ("360p", "360p SD", vid_360, "SD"),
-    ]:
+        ("240p", "240p SD", vid_240, "SD"),
+    ]
+    if fallback_vid:
+        candidates.append(("video", "Standard Video (MP4)", fallback_vid, "SD"))
+
+    for key, label, vid, note in candidates:
         if vid and vid.get("url"):
             vid_url = _normalize_url(vid.get("url"))
             vid_bytes = _get_bytes(vid)
             total_est_bytes = (vid_bytes + (aud_bytes or 0)) if vid_bytes else None
             if not total_est_bytes and duration:
-                bitrate_table = {"1080p": 450_000, "720p": 250_000, "360p": 100_000}
-                total_est_bytes = int(duration * bitrate_table.get(key, 250_000))
+                bitrate_table = {"1080p": 450_000, "720p": 250_000, "480p": 150_000, "360p": 100_000, "240p": 60_000}
+                total_est_bytes = int(duration * bitrate_table.get(key, 100_000))
 
             sid = f"stream_{secrets.token_urlsafe(24)}"
             register_stream_session(

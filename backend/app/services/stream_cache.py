@@ -162,8 +162,6 @@ class StreamRemuxJob:
             "-reconnect_streamed", "1",
             "-reconnect_delay_max", "5",
             "-rw_timeout", "15000000",
-            "-recv_buffer_size", "1048576",
-            "-buffer_size", "1048576",
         ]
 
         cmd = [
@@ -189,7 +187,7 @@ class StreamRemuxJob:
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
 
             # Monitor file growth while process is running
@@ -211,6 +209,13 @@ class StreamRemuxJob:
                 except (asyncio.TimeoutError, TimeoutError):
                     pass
 
+            stderr_data = b""
+            if self.process.stderr:
+                try:
+                    stderr_data = await asyncio.wait_for(self.process.stderr.read(), timeout=1.0)
+                except Exception:
+                    pass
+
             await self.process.wait()
 
             if self.process.returncode == 0 and self.tmp_file.exists():
@@ -223,7 +228,8 @@ class StreamRemuxJob:
                 self.last_activity = time.time()
                 logger.info(f"Remux completed for {self.stream_id}: {self.bytes_written} bytes")
             else:
-                err_msg = f"FFmpeg remux process exited with code {self.process.returncode}"
+                stderr_clean = stderr_data.decode(errors="replace")[-300:] if stderr_data else "None"
+                err_msg = f"FFmpeg remux process exited with code {self.process.returncode} (stderr: {stderr_clean})"
                 logger.error(f"{err_msg} for {self.stream_id}")
                 self.error = Exception(err_msg)
                 if self.tmp_file.exists():
