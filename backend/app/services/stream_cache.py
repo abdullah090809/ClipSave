@@ -166,7 +166,7 @@ class StreamRemuxJob:
             ffmpeg_bin,
             "-y",
             "-nostdin",
-            "-protocol_whitelist", "file,http,https,tcp,tls,crypto,pipe,data",
+            "-protocol_whitelist", "file,http,https,tcp,tls,crypto,pipe,data,hls",
             "-analyzeduration", "1000000",
             "-probesize", "1000000",
             *header_args,
