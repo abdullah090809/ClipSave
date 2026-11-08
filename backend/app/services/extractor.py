@@ -284,6 +284,12 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "socket_timeout": 15,
         "check_formats": False,
         "js_runtimes": {"node": {}},
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["visionos", "ios", "mweb"],
+                "player_skip": ["configs"],
+            }
+        },
     }
 
     # Load master cookies without allowing yt-dlp to mutate the master file on exit
