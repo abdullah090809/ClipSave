@@ -30,10 +30,20 @@ const activeDownloadSessions = new Map<string, FileSystem.DownloadResumable>();
 
 /**
  * Determines whether a given job supports HTTP Range resumable streaming.
- * Direct CDN streams (TikTok, Instagram, Facebook), progressive audio streams,
- * and backend-buffered composite YouTube streams all support HTTP 206 Partial Content byte ranges.
+ * Direct CDN streams (TikTok, Instagram, Facebook) and progressive audio streams
+ * support HTTP 206 Partial Content byte ranges.
+ *
+ * YouTube video streams are composite (video + audio remuxed by the backend). While the
+ * backend is still remuxing, it computes Range lengths from an ESTIMATED file size, so a
+ * resume can promise more/fewer bytes than the real file and the connection dies with
+ * "peer closed connection without sending complete message body". The next retry then gets
+ * HTTP 416 and wipes a file that was actually complete. Until the backend serves exact
+ * ranges, YouTube video restarts from byte 0 (cheap: the backend serves it from its cache).
  */
-export function isResumeSupported(_job: Pick<DownloadJob, 'media'>): boolean {
+export function isResumeSupported(job: Pick<DownloadJob, 'media'>): boolean {
+  if (job.media.platform === 'youtube' && job.media.format !== 'mp3') {
+    return false;
+  }
   return true;
 }
 
