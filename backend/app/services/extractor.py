@@ -286,15 +286,6 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "js_runtimes": {"node": {}},
     }
 
-    is_yt = "youtube.com" in url.lower() or "youtu.be" in url.lower()
-    if is_yt:
-        ydl_opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["visionos", "ios", "mweb"],
-                "player_skip": ["configs"],
-            }
-        }
-
     # Load master cookies without allowing yt-dlp to mutate the master file on exit
     cookies_content = os.environ.get("COOKIES_CONTENT") or getattr(settings, "COOKIES_CONTENT", None)
     cookies_path = getattr(settings, "COOKIES_FILE", None) or os.environ.get("COOKIES_FILE")
@@ -363,16 +354,10 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
                 info["_extracted_cookies"] = cookie_dict
             return info
     except yt_dlp.utils.DownloadError as e:
-        if is_yt:
-            # Secondary fallback: visionos/ios/mweb without cookies and skipping configs
+        if "cookiefile" in ydl_opts:
+            # Secondary fallback: retry without cookiefile in case cookies expired
             fallback_opts = dict(ydl_opts)
             fallback_opts.pop("cookiefile", None)
-            fallback_opts["extractor_args"] = {
-                "youtube": {
-                    "player_client": ["visionos", "ios", "mweb"],
-                    "player_skip": ["configs"],
-                }
-            }
             try:
                 with yt_dlp.YoutubeDL(fallback_opts) as fydl:
                     info = fydl.extract_info(url, download=False)
@@ -613,21 +598,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         except yt_dlp.utils.DownloadError as e:
             err_msg = str(e).lower()
             log_safe_error("yt-dlp DownloadError", e, url)
-
-            # Datacenter BotGuard bypass: if YouTube throws bot/sign-in challenges on cloud hosts,
-            # use our resilient fallback with verified streams
-            if is_youtube:
-                log_safe_info("Attempting YouTube datacenter fallback", url)
-                try:
-                    fallback_resp = await loop.run_in_executor(
-                        _thread_pool, _resolve_youtube_fallback, url, base_url
-                    )
-                    if fallback_resp:
-                        log_safe_info("YouTube fallback resolution successful", url)
-                        return fallback_resp
-                except Exception as fb_err:
-                    log_safe_error("YouTube fallback failed", fb_err, url)
-
 
             if "private" in err_msg or "login" in err_msg or "empty media response" in err_msg or "not granting access" in err_msg:
                 raise ExtractionError(

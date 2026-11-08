@@ -100,6 +100,86 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
         )
 
 
+async def _stream_live_pipe(upstream_url: str, audio_url: str, upstream_headers: dict, session: dict):
+    ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
+    header_args = []
+    if upstream_headers:
+        header_str = "".join([
+            f"{k}: {v}\r\n"
+            for k, v in upstream_headers.items()
+            if k.lower() in ("user-agent", "cookie", "referer")
+        ])
+        if header_str:
+            header_args = ["-headers", header_str]
+
+    network_args = [
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_delay_max", "5",
+        "-rw_timeout", "15000000",
+    ]
+
+    is_opus = ".webm" in audio_url.lower() or "opus" in audio_url.lower()
+    bsf_args = []
+    if not is_opus and any(x in audio_url.lower() for x in ("m4a", "aac", "manifest", "m3u8", "mp4a")):
+        bsf_args = ["-bsf:a", "aac_adtstoasc"]
+
+    cmd = [
+        ffmpeg_bin,
+        "-y",
+        "-nostdin",
+        "-protocol_whitelist", "file,http,https,tcp,tls,crypto,pipe,data,hls",
+        "-analyzeduration", "1000000",
+        "-probesize", "1000000",
+        *header_args,
+        *network_args,
+        "-i", upstream_url,
+        *header_args,
+        *network_args,
+        "-i", audio_url,
+        "-c", "copy",
+        *bsf_args,
+        "-movflags", "frag_keyframe+empty_moov",
+        "-f", "mp4",
+        "pipe:1",
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+    async def ffmpeg_stream_generator():
+        await _streaming_semaphore.acquire()
+        try:
+            while True:
+                chunk = await proc.stdout.read(524288)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            _streaming_semaphore.release()
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+            await proc.wait()
+
+    stream_resp_headers = {
+        "Content-Type": "video/mp4",
+        "Accept-Ranges": "none",
+    }
+    if session.get("estimated_size"):
+        stream_resp_headers["X-Estimated-Content-Length"] = str(session["estimated_size"])
+
+    return StreamingResponse(
+        ffmpeg_stream_generator(),
+        media_type="video/mp4",
+        headers=stream_resp_headers,
+    )
+
+
 @router.api_route("/stream/{stream_id}", methods=["GET", "HEAD"], dependencies=[Depends(stream_rate_limit_dependency)])
 async def stream_media_endpoint(stream_id: str, request: Request):
     """
@@ -156,11 +236,19 @@ async def stream_media_endpoint(stream_id: str, request: Request):
         except HTTPException as http_exc:
             if http_exc.status_code == 416:
                 raise
-            log_safe_error("Cached remux HTTPException, falling back to direct video stream", http_exc, upstream_url)
+            log_safe_error("Cached remux HTTPException, attempting live ffmpeg pipe fallback", http_exc, upstream_url)
             await stream_cache_manager.evict_job(stream_id)
+            try:
+                return await _stream_live_pipe(upstream_url, audio_url, upstream_headers, session)
+            except Exception as live_err:
+                log_safe_error("Live ffmpeg pipe fallback failed, falling back to direct video stream", live_err, upstream_url)
         except Exception as ffmpeg_err:
-            log_safe_error("Cached remux failed, falling back to direct video stream", ffmpeg_err, upstream_url)
+            log_safe_error("Cached remux failed, attempting live ffmpeg pipe fallback", ffmpeg_err, upstream_url)
             await stream_cache_manager.evict_job(stream_id)
+            try:
+                return await _stream_live_pipe(upstream_url, audio_url, upstream_headers, session)
+            except Exception as live_err:
+                log_safe_error("Live ffmpeg pipe fallback failed, falling back to direct video stream", live_err, upstream_url)
 
     # CASE 2: Direct progressive video or direct audio stream proxy
     client_range = request.headers.get("range") or request.headers.get("Range")
