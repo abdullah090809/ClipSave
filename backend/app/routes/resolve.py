@@ -157,8 +157,10 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             if http_exc.status_code == 416:
                 raise
             log_safe_error("Cached remux HTTPException, falling back to direct video stream", http_exc, upstream_url)
+            await stream_cache_manager.evict_job(stream_id)
         except Exception as ffmpeg_err:
             log_safe_error("Cached remux failed, falling back to direct video stream", ffmpeg_err, upstream_url)
+            await stream_cache_manager.evict_job(stream_id)
 
     # CASE 2: Direct progressive video or direct audio stream proxy
     client_range = request.headers.get("range") or request.headers.get("Range")

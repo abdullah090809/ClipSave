@@ -162,6 +162,11 @@ class StreamRemuxJob:
             "-rw_timeout", "15000000",
         ]
 
+        is_opus = ".webm" in self.audio_url.lower() or "opus" in self.audio_url.lower()
+        bsf_args = []
+        if not is_opus and any(x in self.audio_url.lower() for x in ("m4a", "aac", "manifest", "m3u8", "mp4a")):
+            bsf_args = ["-bsf:a", "aac_adtstoasc"]
+
         cmd = [
             ffmpeg_bin,
             "-y",
@@ -176,6 +181,7 @@ class StreamRemuxJob:
             *network_args,
             "-i", self.audio_url,
             "-c", "copy",
+            *bsf_args,
             "-movflags", "frag_keyframe+empty_moov+default_base_moof",
             "-f", "mp4",
             str(self.final_file),
@@ -314,6 +320,24 @@ class StreamCacheManager:
             self._jobs[stream_id] = job
             return job
 
+    async def evict_job(self, stream_id: str):
+        """Immediately evict and cancel a failed or aborted job so retries start fresh."""
+        async with self._lock:
+            job = self._jobs.pop(stream_id, None)
+            task = self._tasks.pop(stream_id, None)
+            if task and not task.done():
+                task.cancel()
+            if job and job.process and job.process.returncode is None:
+                try:
+                    job.process.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+            if job and job.final_file.exists() and not job.is_complete:
+                try:
+                    job.final_file.unlink()
+                except Exception:
+                    pass
+
     async def serve_stream(
         self,
         job: StreamRemuxJob,
@@ -365,12 +389,13 @@ class StreamCacheManager:
         # Build response headers
         response_headers = {
             "Content-Type": "video/mp4",
-            "Accept-Ranges": "bytes",
+            "Accept-Ranges": "bytes" if job.is_complete else "none",
             "X-Request-ID": req_id,
         }
 
         # Handle range vs non-range
         if range_spec:
+            response_headers["Accept-Ranges"] = "bytes"
             start, end = range_spec
             
             # If start is beyond currently available bytes on an in-progress file, wait for writer up to a limit
