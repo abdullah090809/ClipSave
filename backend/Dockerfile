@@ -11,9 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Final minimal runtime image
 FROM python:3.13-slim AS runtime
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
 # Install ffmpeg, nodejs, and ca-certificates for DASH remuxing and JS signature extraction
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -24,9 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create non-root user
 RUN groupadd -g 10001 appuser && \
-    useradd -u 10001 -g appuser -s /sbin/nologin -d /app appuser && \
-    mkdir -p /tmp /app/cache && \
-    chown -R appuser:appuser /tmp /app/cache
+    useradd -u 10001 -g appuser -s /sbin/nologin -d /app appuser
 
 WORKDIR /app
 
