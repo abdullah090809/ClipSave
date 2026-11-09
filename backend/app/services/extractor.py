@@ -66,7 +66,6 @@ def clear_stream_sessions() -> None:
 
 INVIDIOUS_INSTANCES = [
     "https://yt.chocolatemoo53.com",
-    "https://invidious.projectsegfau.lt",
     "https://invidious.protokolla.fi",
     "https://inv.nadeko.net",
     "https://invidious.nerdvpn.de",
@@ -94,7 +93,7 @@ def _get_invidious_instances() -> List[str]:
                     live.append(meta["uri"].rstrip("/"))
     except Exception:
         pass
-    merged = list(dict.fromkeys(live[:10] + INVIDIOUS_INSTANCES))
+    merged = list(dict.fromkeys(INVIDIOUS_INSTANCES + live[:10]))
     _inv_cache.update(ts=now, list=merged)
     return merged
 
@@ -129,20 +128,15 @@ def _probe_stream_url(raw_url: Optional[str], instance: str) -> bool:
         return False
 
 
-def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optional[ResolvedMediaResponse]:
+def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None, budget: float = 6.0) -> Optional[ResolvedMediaResponse]:
     video_id = _extract_youtube_id(url)
     if not video_id:
         return None
 
-    data = None
-    used_instance = None
-    deadline = time.monotonic() + 20.0
-    for inst in _get_invidious_instances():
-        if time.monotonic() > deadline:
-            break
+    def _try_instance(inst: str):
         is_safe, _ = verify_url_ssrf_safety(inst)
         if not is_safe:
-            continue
+            return None
         try:
             req = urllib.request.Request(
                 f"{inst}/api/v1/videos/{video_id}?local=true",
@@ -150,21 +144,36 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
             )
             with urllib.request.urlopen(req, timeout=3) as r:
                 if r.status != 200:
-                    continue
+                    return None
                 candidate = json.loads(r.read().decode())
         except Exception:
-            continue
-
+            return None
         probe_formats = candidate.get("adaptiveFormats") or []
         probe_video = next((f.get("url") for f in probe_formats if "video" in f.get("type", "") and f.get("url")), None)
         probe_audio = next((f.get("url") for f in probe_formats if "audio" in f.get("type", "") and f.get("url")), None)
         if not _probe_stream_url(probe_video, inst):
-            continue
+            return None
         if probe_audio and not _probe_stream_url(probe_audio, inst):
-            continue
-        data = candidate
-        used_instance = inst
-        break
+            return None
+        return candidate, inst
+
+    # Race all instances in parallel; the first healthy one wins. Total time is
+    # capped so the request answers before the hosting gateway gives up.
+    data = None
+    used_instance = None
+    instances = _get_invidious_instances()[:8]
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(instances) or 1)
+    futures = [pool.submit(_try_instance, inst) for inst in instances]
+    try:
+        for fut in concurrent.futures.as_completed(futures, timeout=budget):
+            res = fut.result()
+            if res:
+                data, used_instance = res
+                break
+    except concurrent.futures.TimeoutError:
+        pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     if not data:
         return None
@@ -405,8 +414,12 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         if is_yt:
             # Retry each player client on its own, without cookies. Clients that
             # don't need a PO token (android_vr, tv) often pass the bot check.
-            for client in ("android_vr", "tv", "tv_simply", "web_safari", "mweb", "ios"):
+            cascade_deadline = time.monotonic() + 4.0
+            for client in ("android_vr", "tv", "web_safari"):
+                if time.monotonic() > cascade_deadline:
+                    break
                 fallback_opts = dict(ydl_opts)
+                fallback_opts["socket_timeout"] = 4
                 fallback_opts.pop("cookiefile", None)
                 fallback_opts["extractor_args"] = {"youtube": {"player_client": [client]}}
                 try:
@@ -630,10 +643,26 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
 
     async with _concurrency_semaphore:
         loop = asyncio.get_running_loop()
+        yt_proxy_set = bool(os.environ.get("YT_PROXY") or getattr(settings, "YT_PROXY", None))
+        fast_tried = False
+        if is_youtube and not yt_proxy_set:
+            fast_tried = True
+            # Datacenter IPs are almost always bot-blocked by yt-dlp, so try the
+            # fast Invidious path first instead of waiting out slow yt-dlp failures.
+            try:
+                quick = await asyncio.wait_for(
+                    loop.run_in_executor(_thread_pool, _resolve_youtube_fallback, url, base_url, 5.0),
+                    timeout=7,
+                )
+                if quick:
+                    log_safe_info("YouTube fast-path (Invidious) successful", url)
+                    return quick
+            except Exception as fb_err:
+                log_safe_error("YouTube fast-path failed", fb_err, url)
         try:
             info = await asyncio.wait_for(
                 loop.run_in_executor(_thread_pool, _run_ytdlp_extract, url),
-                timeout=settings.REQUEST_TIMEOUT_SECONDS,
+                timeout=(6 if (is_youtube and fast_tried) else settings.REQUEST_TIMEOUT_SECONDS),
             )
         except asyncio.TimeoutError:
             log_safe_error("Extraction timed out", Exception("Timeout"), url)
@@ -646,7 +675,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             err_msg = str(e).lower()
             log_safe_error("yt-dlp DownloadError", e, url)
 
-            if is_youtube:
+            if is_youtube and not fast_tried:
                 log_safe_info("Attempting YouTube datacenter fallback", url)
                 try:
                     fallback_resp = await loop.run_in_executor(
