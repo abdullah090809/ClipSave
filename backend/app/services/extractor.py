@@ -605,6 +605,13 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             err_msg = str(e).lower()
             log_safe_error("yt-dlp DownloadError", e, url)
 
+            if is_youtube:
+                fallback_resp = await loop.run_in_executor(
+                    _thread_pool, _resolve_youtube_fallback, url, base_url
+                )
+                if fallback_resp:
+                    return fallback_resp
+
             if "private" in err_msg or "login" in err_msg or "empty media response" in err_msg or "not granting access" in err_msg:
                 raise ExtractionError(
                     code="MEDIA_PRIVATE",
