@@ -18,8 +18,6 @@ from ..security.ssrf import verify_url_ssrf_safety
 _cookie_lock = threading.Lock()
 _cached_cookie_path: Optional[str] = None
 
-# In-memory stream session registry for proxying protected streams
-# Bounded to prevent memory exhaustion under continuous load
 MAX_STREAM_SESSIONS = 5000
 _stream_sessions: Dict[str, Dict[str, Any]] = {}
 
@@ -35,12 +33,10 @@ def register_stream_session(
     estimated_size: Optional[int] = None,
 ) -> None:
     now = time.time()
-    # Expire sessions older than 2 hours (7200 seconds)
     expired = [k for k, v in _stream_sessions.items() if now - v.get("created_at", 0) > 7200]
     for k in expired:
         _stream_sessions.pop(k, None)
 
-    # Enforce capacity cap: evict oldest sessions if registry is full
     if len(_stream_sessions) >= MAX_STREAM_SESSIONS:
         excess = len(_stream_sessions) - MAX_STREAM_SESSIONS + 1
         sorted_keys = sorted(_stream_sessions.keys(), key=lambda k: _stream_sessions[k].get("created_at", 0))
@@ -64,13 +60,13 @@ def get_stream_session(stream_id: str) -> Optional[Dict[str, Any]]:
 
 
 def clear_stream_sessions() -> None:
-    """Clear all stream sessions (used primarily for test isolation)."""
+    """Clear all stream sessions."""
     _stream_sessions.clear()
 
 
 INVIDIOUS_INSTANCES = [
-    "https://invidious.projectsegfau.lt",
     "https://yt.chocolatemoo53.com",
+    "https://invidious.projectsegfau.lt",
     "https://invidious.protokolla.fi",
     "https://inv.nadeko.net",
     "https://invidious.nerdvpn.de",
@@ -83,6 +79,31 @@ def _extract_youtube_id(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+_PROBE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+
+def _probe_stream_url(raw_url: Optional[str], instance: str) -> bool:
+    if not raw_url:
+        return False
+    full = f"{instance}{raw_url}" if raw_url.startswith("/") else raw_url
+    is_safe, _ = verify_url_ssrf_safety(full)
+    if not is_safe:
+        return False
+    try:
+        req = urllib.request.Request(
+            full,
+            headers={
+                "User-Agent": _PROBE_UA,
+                "Referer": "https://www.youtube.com/",
+                "Range": "bytes=0-0",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=3) as r:
+            return r.status in (200, 206)
+    except Exception:
+        return False
+
+
 def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optional[ResolvedMediaResponse]:
     video_id = _extract_youtube_id(url)
     if not video_id:
@@ -90,22 +111,35 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
 
     data = None
     used_instance = None
+    deadline = time.monotonic() + 12.0
     for inst in INVIDIOUS_INSTANCES:
+        if time.monotonic() > deadline:
+            break
         is_safe, _ = verify_url_ssrf_safety(inst)
         if not is_safe:
             continue
         try:
             req = urllib.request.Request(
                 f"{inst}/api/v1/videos/{video_id}?local=true",
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                headers={"User-Agent": _PROBE_UA}
             )
             with urllib.request.urlopen(req, timeout=3) as r:
-                if r.status == 200:
-                    data = json.loads(r.read().decode())
-                    used_instance = inst
-                    break
+                if r.status != 200:
+                    continue
+                candidate = json.loads(r.read().decode())
         except Exception:
             continue
+
+        probe_formats = candidate.get("adaptiveFormats") or []
+        probe_video = next((f.get("url") for f in probe_formats if "video" in f.get("type", "") and f.get("url")), None)
+        probe_audio = next((f.get("url") for f in probe_formats if "audio" in f.get("type", "") and f.get("url")), None)
+        if not _probe_stream_url(probe_video, inst):
+            continue
+        if probe_audio and not _probe_stream_url(probe_audio, inst):
+            continue
+        data = candidate
+        used_instance = inst
+        break
 
     if not data:
         return None
@@ -126,7 +160,6 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
             return f"{used_instance}{raw_u}"
         return raw_u
 
-    # Find best audio format
     best_audio = next((f for f in adaptive if "audio" in f.get("type", "") and f.get("container") == "m4a"), None)
     if not best_audio:
         best_audio = next((f for f in adaptive if "audio" in f.get("type", "")), None)
@@ -256,7 +289,6 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None) -> Optio
     )
 
 
-# Bounded worker semaphore
 _concurrency_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_EXTRACTIONS)
 _thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=settings.MAX_CONCURRENT_EXTRACTIONS)
 
@@ -287,12 +319,10 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         "extractor_args": {
             "youtube": {
                 "player_client": ["visionos", "ios", "mweb"],
-                "player_skip": ["configs"],
             }
         },
     }
 
-    # Load master cookies without allowing yt-dlp to mutate the master file on exit
     cookies_content = os.environ.get("COOKIES_CONTENT") or getattr(settings, "COOKIES_CONTENT", None)
     cookies_path = getattr(settings, "COOKIES_FILE", None) or os.environ.get("COOKIES_FILE")
 
@@ -315,24 +345,6 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
         if cookies_path and os.path.exists(cookies_path):
             try:
                 with open(cookies_path, "r", encoding="utf-8") as f:
-                    master_cookie_data = f.read()
-            except Exception:
-                pass
-        elif os.path.exists("/app/cookies.txt"):
-            try:
-                with open("/app/cookies.txt", "r", encoding="utf-8") as f:
-                    master_cookie_data = f.read()
-            except Exception:
-                pass
-        elif os.path.exists("backend/cookies.txt"):
-            try:
-                with open("backend/cookies.txt", "r", encoding="utf-8") as f:
-                    master_cookie_data = f.read()
-            except Exception:
-                pass
-        elif os.path.exists("cookies.txt"):
-            try:
-                with open("cookies.txt", "r", encoding="utf-8") as f:
                     master_cookie_data = f.read()
             except Exception:
                 pass
@@ -360,10 +372,16 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
                 info["_extracted_cookies"] = cookie_dict
             return info
     except yt_dlp.utils.DownloadError as e:
-        if "cookiefile" in ydl_opts:
-            # Secondary fallback: retry without cookiefile in case cookies expired
+        is_yt = "youtube.com" in url.lower() or "youtu.be" in url.lower()
+        if is_yt:
             fallback_opts = dict(ydl_opts)
             fallback_opts.pop("cookiefile", None)
+            fallback_opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["visionos", "ios", "mweb"],
+                    "player_skip": ["configs"],
+                }
+            }
             try:
                 with yt_dlp.YoutubeDL(fallback_opts) as fydl:
                     info = fydl.extract_info(url, download=False)
@@ -395,7 +413,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         host_prefix = base_url.rstrip("/") if base_url else "http://test"
 
         if is_youtube:
-            # YouTube Mock Metadata
             formats = [
                 MediaFormatOption(
                     id="1080p",
@@ -458,7 +475,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             )
 
         if is_instagram:
-            # Instagram Mock Metadata
             formats = [
                 MediaFormatOption(
                     id="1080p",
@@ -501,7 +517,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             )
 
         if is_facebook:
-            # Facebook Mock Metadata
             formats = [
                 MediaFormatOption(
                     id="1080p",
@@ -543,7 +558,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 isCleanSourceVerified=True,
             )
 
-        # TikTok Mock Metadata
         formats = [
             MediaFormatOption(
                 id="1080p",
@@ -606,13 +620,21 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             log_safe_error("yt-dlp DownloadError", e, url)
 
             if is_youtube:
-                fallback_resp = await loop.run_in_executor(
-                    _thread_pool, _resolve_youtube_fallback, url, base_url
-                )
-                if fallback_resp:
-                    return fallback_resp
+                log_safe_info("Attempting YouTube datacenter fallback", url)
+                try:
+                    fallback_resp = await loop.run_in_executor(
+                        _thread_pool, _resolve_youtube_fallback, url, base_url
+                    )
+                    if fallback_resp:
+                        log_safe_info("YouTube fallback resolution successful", url)
+                        return fallback_resp
+                except Exception as fb_err:
+                    log_safe_error("YouTube fallback failed", fb_err, url)
 
-            if "private" in err_msg or "login" in err_msg or "empty media response" in err_msg or "not granting access" in err_msg:
+            clean_err = re.sub(r'(/[\w.-]+)+', '[path]', str(e))
+            clean_err = re.sub(r'[A-Za-z]:\\[\w.-]+(\\[\w.-]+)*', '[path]', clean_err)
+            clean_err = re.sub(r'[?&][^=]+=[^& \n]+', '[param]', clean_err)
+            if "private" in err_msg or "empty media response" in err_msg or "not granting access" in err_msg:
                 raise ExtractionError(
                     code="MEDIA_PRIVATE",
                     message="This video is private, restricted, or requires an account login. ClipSave only accesses publicly accessible videos.",
@@ -636,9 +658,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                     message="TikTok is temporarily rate-limiting requests. Please try again in a moment.",
                     status_code=429,
                 )
-            clean_err = re.sub(r'(/[\w.-]+)+', '[path]', str(e))
-            clean_err = re.sub(r'[A-Za-z]:\\[\w.-]+(\\[\w.-]+)*', '[path]', clean_err)
-            clean_err = re.sub(r'[?&][^=]+=[^& \n]+', '[param]', clean_err)
             raise ExtractionError(
                 code="EXTRACTOR_FAILED",
                 message=f"Could not resolve media metadata: {clean_err[:180]}",
@@ -690,7 +709,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             and "dash" not in proto_str
         )
 
-    # 1. Locate best audio stream (strictly direct streams)
     audio_formats = [
         f for f in formats
         if f.get("vcodec") == "none" and f.get("acodec") != "none" and _is_direct_stream(f)
@@ -707,7 +725,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
     available_format_options: List[MediaFormatOption] = []
 
     if detected_platform == "youtube":
-        # Video streams (strictly direct streams, excluding m3u8 playlists)
         direct_video_formats = [
             f for f in formats
             if f.get("vcodec") != "none" and _is_direct_stream(f)
@@ -716,7 +733,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             f for f in formats if f.get("vcodec") != "none" and f.get("url")
         ]
 
-        # Group into 1080p, 720p, 360p tiers (preferring highest quality MP4 stream in each tier)
         tiers: Dict[str, Dict[str, Any]] = {}
         for f in video_formats:
             h = f.get("height") or 0
@@ -728,7 +744,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             elif 360 <= h < 720 and ext == "mp4":
                 tiers["360p"] = f
 
-        # Fallback to webm or other containers if missing a tier
         for f in video_formats:
             h = f.get("height") or 0
             if h >= 1080 and "1080p" not in tiers:
@@ -738,11 +753,9 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             elif 360 <= h < 720 and "360p" not in tiers:
                 tiers["360p"] = f
 
-        # If still empty, check for progressive formats or root url
         if not tiers and video_formats:
             tiers["720p"] = video_formats[-1]
 
-        # Register sessions for each tier
         for quality_key in ["1080p", "720p", "360p"]:
             if quality_key in tiers:
                 fmt = tiers[quality_key]
@@ -757,7 +770,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                         bitrate_table = {"1080p": 450_000, "720p": 250_000, "360p": 100_000}
                         total_estimated_size = int(duration_sec * bitrate_table.get(quality_key, 250_000))
 
-                # If format has no audio, pair with audio_url for live ffmpeg remux
                 needs_audio_mux = fmt.get("acodec") == "none" and bool(audio_url)
                 a_url = audio_url if needs_audio_mux else None
 
@@ -787,7 +799,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                     )
                 )
 
-        # Audio Only Option
         if audio_url:
             stream_id_audio = f"stream_{secrets.token_urlsafe(24)}"
             register_stream_session(
@@ -814,8 +825,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 )
             )
     else:
-        # TikTok, Instagram, and generic progressive video
-        # Priority 1: Best MP4 video stream that ALREADY HAS AUDIO included
         selected_format: Optional[Dict[str, Any]] = None
         for f in reversed(formats):
             if (
@@ -827,14 +836,12 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 selected_format = f
                 break
 
-        # Priority 2: Best video stream (will be paired with audio_url for FFmpeg remux if acodec is none)
         if not selected_format:
             for f in reversed(formats):
                 if f.get("url") and _is_direct_stream(f) and f.get("vcodec") != "none":
                     selected_format = f
                     break
 
-        # Priority 3: Any available stream
         if not selected_format and formats:
             selected_format = formats[-1]
 
@@ -854,9 +861,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                 status_code=422,
             )
 
-        # Critical fix for Instagram/TikTok audio:
-        # If the video stream has no audio track (video-only DASH stream),
-        # pair it with audio_url so FFmpeg remuxes video + audio together in real time.
         needs_audio_mux = bool(
             selected_format
             and selected_format.get("acodec") == "none"
@@ -896,7 +900,6 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             )
         )
 
-        # Audio Only (MP3)
         stream_id_audio = f"stream_{secrets.token_urlsafe(24)}"
         register_stream_session(
             stream_id=stream_id_audio,
@@ -922,11 +925,9 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
             )
         )
 
-    # Pick top default format
     default_format = available_format_options[0] if available_format_options else None
     default_media_url = default_format.mediaUrl if default_format else ""
 
-    # Prevent directMediaUrl fallback to a silent stream when audio remuxing is required
     if detected_platform == "youtube":
         first_fmt = tiers.get(default_format.id) if (default_format and "tiers" in locals()) else None
         has_direct_audio = bool(first_fmt and first_fmt.get("acodec") != "none")

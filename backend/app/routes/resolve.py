@@ -21,7 +21,6 @@ from ..services.stream_cache import stream_cache_manager
 
 router = APIRouter(prefix="/v1", tags=["resolve"])
 
-# Bounded streaming semaphore across all concurrent active downloads to prevent container OOM
 _streaming_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_STREAMS)
 
 
@@ -48,7 +47,6 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
     req_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     raw_url = body.url
 
-    # Step 1: Strict URL parsing & allowlist verification (YouTube, TikTok, future platforms)
     is_valid, canon_url, platform, err_msg = validate_media_url(raw_url)
     if not is_valid:
         log_safe_info(f"Rejected invalid URL: {err_msg}", raw_url)
@@ -57,7 +55,6 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
             detail={"code": "INVALID_URL", "message": err_msg, "requestId": req_id},
         )
 
-    # Step 2: SSRF Pre-flight DNS Verification
     is_safe, ssrf_err = verify_url_ssrf_safety(canon_url)
     if not is_safe:
         log_safe_error("SSRF defense triggered", Exception(ssrf_err), canon_url)
@@ -66,7 +63,6 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
             detail={"code": "SSRF_RESTRICTED", "message": "Host is not permitted for resolution.", "requestId": req_id},
         )
 
-    # Step 3: Metadata Extraction with streaming proxy base URL
     try:
         base_url = str(request.base_url)
         hostname = request.url.hostname or ""
@@ -77,7 +73,6 @@ async def resolve_media_endpoint(body: ResolveRequest, request: Request):
             or hostname.startswith("10.")
             or hostname.startswith("172.")
         )
-        # Force HTTPS only on public cloud containers (e.g. SnapDeploy, ngrok, domains), keep HTTP for local LAN
         if base_url.startswith("http://") and not is_local_ip:
             base_url = "https://" + base_url[len("http://"):]
 
@@ -143,41 +138,75 @@ async def _stream_live_pipe(upstream_url: str, audio_url: str, upstream_headers:
         "-f", "mp4",
         "pipe:1",
     ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-
-    async def ffmpeg_stream_generator():
-        await _streaming_semaphore.acquire()
+    await _streaming_semaphore.acquire()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         try:
-            while True:
-                chunk = await proc.stdout.read(524288)
-                if not chunk:
-                    break
-                yield chunk
-        finally:
-            _streaming_semaphore.release()
+            first_chunk = await asyncio.wait_for(proc.stdout.read(settings.CHUNK_SIZE_BYTES), timeout=15.0)
+        except Exception:
+            first_chunk = b""
+
+        if not first_chunk:
+            stderr_out = b""
+            if proc.stderr:
+                try:
+                    stderr_out = await asyncio.wait_for(proc.stderr.read(1024), timeout=1.0)
+                except Exception:
+                    pass
             if proc.returncode is None:
                 try:
                     proc.kill()
                 except (ProcessLookupError, OSError):
                     pass
             await proc.wait()
+            _streaming_semaphore.release()
+            clean_err = stderr_out.decode(errors="replace").strip()[-200:] if stderr_out else "Live remux stream empty"
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": "STREAM_REMUX_FAILED", "message": f"FFmpeg remux process exited: {clean_err}"}
+            )
 
-    stream_resp_headers = {
-        "Content-Type": "video/mp4",
-        "Accept-Ranges": "none",
-    }
-    if session.get("estimated_size"):
-        stream_resp_headers["X-Estimated-Content-Length"] = str(session["estimated_size"])
+        async def ffmpeg_stream_generator():
+            try:
+                yield first_chunk
+                while True:
+                    chunk = await proc.stdout.read(settings.CHUNK_SIZE_BYTES)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                _streaming_semaphore.release()
+                if proc.returncode is None:
+                    try:
+                        proc.kill()
+                    except (ProcessLookupError, OSError):
+                        pass
+                await proc.wait()
 
-    return StreamingResponse(
-        ffmpeg_stream_generator(),
-        media_type="video/mp4",
-        headers=stream_resp_headers,
-    )
+        stream_resp_headers = {
+            "Content-Type": "video/mp4",
+            "Accept-Ranges": "none",
+        }
+        if session.get("estimated_size"):
+            stream_resp_headers["X-Estimated-Content-Length"] = str(session["estimated_size"])
+
+        return StreamingResponse(
+            ffmpeg_stream_generator(),
+            media_type="video/mp4",
+            headers=stream_resp_headers,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        _streaming_semaphore.release()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "STREAM_REMUX_FAILED", "message": str(e)}
+        )
 
 
 @router.api_route("/stream/{stream_id}", methods=["GET", "HEAD"], dependencies=[Depends(stream_rate_limit_dependency)])
@@ -201,7 +230,6 @@ async def stream_media_endpoint(stream_id: str, request: Request):
     ext = session.get("ext", "mp4")
     upstream_headers = session.get("headers", {}).copy()
 
-    # Pre-flight SSRF check on primary upstream URL
     is_safe, ssrf_err = verify_url_ssrf_safety(upstream_url)
     if not is_safe:
         log_safe_error("SSRF defense triggered on stream upstream URL", Exception(ssrf_err), upstream_url)
@@ -210,7 +238,6 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             detail={"code": "SSRF_RESTRICTED", "message": "Host is not permitted for streaming.", "requestId": req_id},
         )
 
-    # CASE 1: Composite DASH stream (YouTube separate video and audio streams requiring live remux)
     if audio_url:
         is_safe_audio, ssrf_err_audio = verify_url_ssrf_safety(audio_url)
         if not is_safe_audio:
@@ -221,7 +248,6 @@ async def stream_media_endpoint(stream_id: str, request: Request):
             )
 
         try:
-            # Periodic storage cap & TTL maintenance
             stream_cache_manager.prune_cache()
 
             job = await stream_cache_manager.get_or_create_job(
@@ -238,24 +264,16 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 raise
             log_safe_error("Cached remux HTTPException, attempting live ffmpeg pipe fallback", http_exc, upstream_url)
             await stream_cache_manager.evict_job(stream_id)
-            try:
-                return await _stream_live_pipe(upstream_url, audio_url, upstream_headers, session)
-            except Exception as live_err:
-                log_safe_error("Live ffmpeg pipe fallback failed, falling back to direct video stream", live_err, upstream_url)
+            return await _stream_live_pipe(upstream_url, audio_url, upstream_headers, session)
         except Exception as ffmpeg_err:
             log_safe_error("Cached remux failed, attempting live ffmpeg pipe fallback", ffmpeg_err, upstream_url)
             await stream_cache_manager.evict_job(stream_id)
-            try:
-                return await _stream_live_pipe(upstream_url, audio_url, upstream_headers, session)
-            except Exception as live_err:
-                log_safe_error("Live ffmpeg pipe fallback failed, falling back to direct video stream", live_err, upstream_url)
+            return await _stream_live_pipe(upstream_url, audio_url, upstream_headers, session)
 
-    # CASE 2: Direct progressive video or direct audio stream proxy
     client_range = request.headers.get("range") or request.headers.get("Range")
     if client_range:
         upstream_headers["Range"] = client_range
 
-    # Prefer shared client pool from lifespan, fallback to local client if not available
     shared_client = getattr(request.app.state, "http_client", None)
     is_local_client = False
     if shared_client is not None and not shared_client.is_closed:
@@ -307,15 +325,11 @@ async def stream_media_endpoint(stream_id: str, request: Request):
                 detail={"code": "TOO_MANY_REDIRECTS", "message": "Too many upstream redirects encountered.", "requestId": req_id},
             )
 
-        chunk_size = settings.CHUNK_SIZE_BYTES
-
         async def chunk_generator():
-            await _streaming_semaphore.acquire()
             try:
-                async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
+                async for chunk in resp.aiter_bytes(chunk_size=settings.CHUNK_SIZE_BYTES):
                     yield chunk
             finally:
-                _streaming_semaphore.release()
                 await resp.aclose()
                 if is_local_client:
                     await client.aclose()
