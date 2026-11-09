@@ -23,5 +23,27 @@ async def health_check():
 
 @router.get("/readyz")
 async def readiness_check():
-    """Readiness probe."""
-    return {"status": "ready"}
+    """Readiness probe with ffmpeg and environment diagnosis."""
+    import shutil
+    import subprocess
+    import os
+    from ..services.stream_cache import get_cache_dir, stream_cache_manager
+    ff = shutil.which("ffmpeg")
+    ver = None
+    if ff:
+        try:
+            r = subprocess.run([ff, "-version"], capture_output=True, text=True, timeout=3)
+            ver = r.stdout.splitlines()[0] if r.stdout else None
+        except Exception as e:
+            ver = str(e)
+    cache_dir = str(get_cache_dir())
+    node_bin = shutil.which("node") or shutil.which("nodejs")
+    return {
+        "status": "ready",
+        "ffmpeg_path": ff,
+        "ffmpeg_version": ver,
+        "node_path": node_bin,
+        "cache_dir": cache_dir,
+        "uid": os.getuid() if hasattr(os, "getuid") else None,
+        "last_remux_error": stream_cache_manager.last_error,
+    }

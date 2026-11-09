@@ -1,7 +1,9 @@
+import json
 import uuid
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .routes.resolve import router as resolve_router
@@ -11,8 +13,14 @@ from .services.extractor import _thread_pool
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize shared HTTP client pool with bounded connection limits
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=100, keepalive_expiry=30.0)
+    timeout = httpx.Timeout(connect=15.0, read=60.0, write=60.0, pool=10.0)
+    http_client = httpx.AsyncClient(limits=limits, timeout=timeout, follow_redirects=False)
+    app.state.http_client = http_client
     yield
-    # Graceful shutdown of extractor thread pool
+    # Graceful cleanup
+    await http_client.aclose()
     _thread_pool.shutdown(wait=False)
 
 
@@ -40,6 +48,7 @@ app.add_middleware(
         "Content-Type",
         "X-Request-ID",
         "X-Response-Time-Ms",
+        "X-Estimated-Content-Length",
     ],
 )
 
@@ -49,6 +58,20 @@ async def security_and_tracing_middleware(request: Request, call_next):
     # Assign unique request ID
     req_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
     request.state.request_id = req_id
+
+    # Defense against oversized request bodies
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > settings.MAX_BODY_BYTES:
+        return Response(
+            content=json.dumps({
+                "code": "PAYLOAD_TOO_LARGE",
+                "message": "Request payload exceeds allowed limit.",
+                "requestId": req_id
+            }),
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            media_type="application/json",
+            headers={"X-Request-ID": req_id},
+        )
 
     start_time = time.time()
     response = await call_next(request)
