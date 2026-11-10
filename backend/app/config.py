@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     """ClipSave Backend Application Settings."""
     
     APP_NAME: str = "ClipSave Resolver"
-    APP_VERSION: str = "1.0.7"
+    APP_VERSION: str = "1.0.8"
     DEBUG: bool = False
     
     HOST: str = "0.0.0.0"

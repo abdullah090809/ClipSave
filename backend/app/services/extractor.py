@@ -323,6 +323,20 @@ def _resolve_youtube_fallback(url: str, base_url: Optional[str] = None, budget: 
     )
 
 
+_yt_dlp_gate = threading.Semaphore(2)
+
+
+def _run_ytdlp_guarded(url: str) -> Dict[str, Any]:
+    """Allow at most 2 YouTube yt-dlp runs at once; a cancelled request's thread
+    keeps running, so without this repeated retries pile up and overload the box."""
+    if not _yt_dlp_gate.acquire(blocking=False):
+        raise yt_dlp.utils.DownloadError("extractor busy")
+    try:
+        return _run_ytdlp_extract(url)
+    finally:
+        _yt_dlp_gate.release()
+
+
 _concurrency_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_EXTRACTIONS)
 _thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=settings.MAX_CONCURRENT_EXTRACTIONS)
 
@@ -358,7 +372,11 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
     }
 
     yt_proxy = os.environ.get("YT_PROXY") or getattr(settings, "YT_PROXY", None)
-    if yt_proxy and ("youtube.com" in url.lower() or "youtu.be" in url.lower()):
+    _is_yt_url = "youtube.com" in url.lower() or "youtu.be" in url.lower()
+    if _is_yt_url:
+        ydl_opts["socket_timeout"] = 5
+        ydl_opts["extractor_retries"] = 0
+    if yt_proxy and _is_yt_url:
         ydl_opts["proxy"] = yt_proxy
 
     cookies_content = os.environ.get("COOKIES_CONTENT") or getattr(settings, "COOKIES_CONTENT", None)
@@ -411,7 +429,7 @@ def _run_ytdlp_extract(url: str) -> Dict[str, Any]:
             return info
     except yt_dlp.utils.DownloadError as e:
         is_yt = "youtube.com" in url.lower() or "youtu.be" in url.lower()
-        if is_yt:
+        if is_yt and yt_proxy:
             # Retry each player client on its own, without cookies. Clients that
             # don't need a PO token (android_vr, tv) often pass the bot check.
             cascade_deadline = time.monotonic() + 4.0
@@ -655,7 +673,7 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                     loop.run_in_executor(_thread_pool, _resolve_youtube_fallback, url, base_url, 3.5),
                     timeout=4.5))
                 yt_task = asyncio.ensure_future(asyncio.wait_for(
-                    loop.run_in_executor(_thread_pool, _run_ytdlp_extract, url),
+                    loop.run_in_executor(_thread_pool, _run_ytdlp_guarded, url),
                     timeout=4.5))
                 pending = {fb_task, yt_task}
                 info = None
