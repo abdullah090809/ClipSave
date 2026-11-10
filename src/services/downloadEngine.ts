@@ -188,6 +188,74 @@ async function finalizeSuccessfulDownload(
   processNextQueuedJob().catch(() => {});
 }
 
+async function runYouTubeChunkedDownload(
+  jobId: string,
+  mediaUrl: string,
+  tempPath: string,
+  safeFilename: string,
+  headers: Record<string, string>,
+  estimatedTotal: number | undefined,
+  onProgress: (data: FileSystem.DownloadProgressData) => void
+): Promise<void> {
+  let stopped = false;
+  const stopper = {
+    cancelAsync: async () => {
+      stopped = true;
+    },
+    pauseAsync: async () => {
+      stopped = true;
+    },
+  };
+  activeDownloadSessions.set(jobId, stopper as unknown as FileSystem.DownloadResumable);
+
+  const stoppedByUser = () => {
+    const state = getQueue().find((j) => j.id === jobId)?.state;
+    return stopped || state === 'CANCELLED' || state === 'PAUSED';
+  };
+
+  try {
+    const { downloadYouTubeChunked } = await import('./youtubeChunkedDownload');
+    await downloadYouTubeChunked({
+      url: mediaUrl,
+      headers,
+      destUri: tempPath,
+      totalBytes: estimatedTotal,
+      shouldStop: () => stopped,
+      onProgress: (written, total) =>
+        onProgress({
+          totalBytesWritten: written,
+          totalBytesExpectedToWrite: total ?? -1,
+        } as FileSystem.DownloadProgressData),
+    });
+  } catch (err: any) {
+    activeDownloadSessions.delete(jobId);
+    dismissDownloadNotification(jobId).catch(() => {});
+    if (stoppedByUser()) {
+      return;
+    }
+    try {
+      await FileSystem.deleteAsync(tempPath, { idempotent: true });
+    } catch {
+      // Ignore
+    }
+    updateJobInQueue(jobId, {
+      state: 'FAILED',
+      statusMessage: 'Download failed',
+      errorMessage: err?.message || 'Download was interrupted. Please retry.',
+      isRetryable: true,
+      supportsResume: false,
+    });
+    processNextQueuedJob().catch(() => {});
+    return;
+  }
+
+  if (stoppedByUser()) {
+    activeDownloadSessions.delete(jobId);
+    return;
+  }
+  await finalizeSuccessfulDownload(jobId, tempPath, safeFilename);
+}
+
 async function executeDownloadStream(
   jobId: string,
   mediaUrl: string,
@@ -269,6 +337,20 @@ async function executeDownloadStream(
     };
 
     notifyDownloadStarted(jobId, currentJob?.media.title || 'Video').catch(() => {});
+
+    // YouTube direct streams are fetched in small ranged pieces; one big request gets refused or throttled.
+    if (currentJob?.media.platform === 'youtube' && /googlevideo\.com/i.test(mediaUrl)) {
+      await runYouTubeChunkedDownload(
+        jobId,
+        mediaUrl,
+        tempPath,
+        safeFilename,
+        currentJob.media.httpHeaders || {},
+        estimatedTotal,
+        callback
+      );
+      return;
+    }
 
     // Ensure secure HTTPS URL on Android for remote production domains (preserve HTTP for local IPs)
     let targetUrl = mediaUrl;
