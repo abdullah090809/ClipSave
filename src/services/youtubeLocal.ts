@@ -7,9 +7,10 @@ import { MediaFormatOption, ResolvedMedia, ResolveError } from '../types';
  * IP instead of a datacenter IP. It mimics the ANDROID_VR client, using the same
  * settings as yt-dlp 2026.10.x (client 28, version 1.65.10).
  *
- * LIMITS (as of yt-dlp 2026.10.26):
- *  - android_vr requires a "GVS PO token" for most formats. The only exemption yt-dlp
- *    makes is itag 18 (360p MP4 with audio), so that is what this resolver can offer.
+ * FORMATS: the combined 360p stream (itag 18) is cut off by YouTube after ~4 MB, but the
+ *  separate H.264 video-only and AAC audio-only streams download fully (verified with
+ *  scripts/test-youtube-adaptive.js). The app downloads both and joins them on the phone.
+ * LIMITS:
  *  - Client versions go stale. If YouTube starts rejecting this one, update
  *    YOUTUBE_CLIENT from yt-dlp's INNERTUBE_CLIENTS['android_vr'].
  */
@@ -108,6 +109,117 @@ function withChunkRange(url: string, sizeBytes?: number): string {
   return `${url}${url.includes('?') ? '&' : '?'}range=0-${sizeBytes - 1}`;
 }
 
+function sizeOf(f: any): number | undefined {
+  const n = f?.contentLength ? Number(f.contentLength) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function mimeOf(f: any): string {
+  return String(f?.mimeType || '');
+}
+
+/** Picks the best AAC (m4a) audio-only stream, preferring the video's original-language track. */
+function pickAudioStream(adaptive: any[]): any | undefined {
+  const audio = adaptive.filter((f) => f && f.url && /^audio\/mp4/.test(mimeOf(f)) && /mp4a/.test(mimeOf(f)));
+  audio.sort((a, b) => {
+    const aDub = a.audioTrack?.audioIsDefault === false ? 1 : 0;
+    const bDub = b.audioTrack?.audioIsDefault === false ? 1 : 0;
+    if (aDub !== bDub) return aDub - bDub;
+    return (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0);
+  });
+  return audio[0];
+}
+
+/** H.264 video-only streams (the only kind Android can join with AAC without re-encoding), one per height/fps. */
+function pickVideoStreams(adaptive: any[]): any[] {
+  const byKey = new Map<string, any>();
+  for (const f of adaptive) {
+    if (!f || !f.url || f.audioQuality) continue;
+    const mime = mimeOf(f);
+    if (!/^video\/mp4/.test(mime) || !/avc1/.test(mime)) continue;
+    const height = Number(f.height);
+    if (!height) continue;
+    const fps = Number(f.fps) > 30 ? Number(f.fps) : 30;
+    const key = `${height}_${fps}`;
+    const existing = byKey.get(key);
+    if (!existing || (Number(f.bitrate) || 0) > (Number(existing.bitrate) || 0)) byKey.set(key, f);
+  }
+  // Highest resolution first; at the same height the smaller 30fps file comes before 60fps.
+  return [...byKey.entries()]
+    .map(([key, f]) => ({ f, height: Number(key.split('_')[0]), fps: Number(key.split('_')[1]) }))
+    .sort((a, b) => b.height - a.height || a.fps - b.fps)
+    .map((x) => x.f);
+}
+
+/**
+ * Builds the quality list. YouTube's 720p/1080p streams come as separate video-only and
+ * audio-only files, so each option carries `audioUrl` and the app joins them after download.
+ * The old combined 360p stream is only used when no separate streams are available, because
+ * YouTube cuts it off after a few MB.
+ */
+export function buildFormatOptions(pr: any): MediaFormatOption[] {
+  const adaptive: any[] = pr?.streamingData?.adaptiveFormats || [];
+  const audio = pickAudioStream(adaptive);
+  const videos = audio ? pickVideoStreams(adaptive).slice(0, 8) : [];
+  const options: MediaFormatOption[] = [];
+
+  if (audio && videos.length > 0) {
+    const audioSize = sizeOf(audio);
+    for (const f of videos) {
+      const height = Number(f.height);
+      const fps = Number(f.fps) > 30 ? Number(f.fps) : 30;
+      const suffix = fps > 30 ? String(fps) : '';
+      const videoSize = sizeOf(f);
+      const option: MediaFormatOption = {
+        id: `${height}p${suffix}`,
+        label: `${qualityLabel(height)}${fps > 30 ? ` ${fps}fps` : ''}`,
+        quality: `${height}p${suffix}`,
+        extension: 'mp4',
+        isVideo: true,
+        mediaUrl: String(f.url),
+        audioUrl: String(audio.url),
+        note: 'Video and sound download separately and are joined on your phone.',
+      };
+      if (videoSize !== undefined && audioSize !== undefined) option.estimatedSizeBytes = videoSize + audioSize;
+      options.push(option);
+    }
+  } else {
+    const muxed: any[] = (pr?.streamingData?.formats || []).filter(
+      (f: any) => f && f.url && /video\/mp4/.test(mimeOf(f)) && f.audioQuality
+    );
+    muxed.sort((a, b) => (b.height || 0) - (a.height || 0));
+    for (const f of muxed) {
+      const height = Number(f.height) || 360;
+      const size = sizeOf(f);
+      const option: MediaFormatOption = {
+        id: `${height}p`,
+        label: qualityLabel(height),
+        quality: `${height}p`,
+        extension: 'mp4',
+        isVideo: true,
+        mediaUrl: withChunkRange(String(f.url), size),
+      };
+      if (size !== undefined) option.estimatedSizeBytes = size;
+      options.push(option);
+    }
+  }
+
+  if (audio) {
+    const audioSize = sizeOf(audio);
+    const option: MediaFormatOption = {
+      id: 'audio',
+      label: 'Audio only (M4A)',
+      quality: 'audio',
+      extension: 'm4a',
+      isVideo: false,
+      mediaUrl: String(audio.url),
+    };
+    if (audioSize !== undefined) option.estimatedSizeBytes = audioSize;
+    options.push(option);
+  }
+  return options;
+}
+
 /** Turns a raw InnerTube player response into the app's ResolvedMedia, or throws a ResolveError. */
 export function parsePlayerResponse(videoId: string, sourceUrl: string, pr: any): ResolvedMedia {
   const status: string | undefined = pr?.playabilityStatus?.status;
@@ -135,32 +247,14 @@ export function parsePlayerResponse(videoId: string, sourceUrl: string, pr: any)
     throw fail('YOUTUBE_UNPLAYABLE', reason || 'YouTube says this video cannot be played here.', false);
   }
 
-  const muxed: any[] = (pr?.streamingData?.formats || []).filter(
-    (f: any) => f && f.url && /video\/mp4/.test(String(f.mimeType || '')) && f.audioQuality
-  );
-  if (muxed.length === 0) {
+  const availableFormats = buildFormatOptions(pr);
+  if (availableFormats.length === 0) {
     throw fail(
       'YOUTUBE_NO_FORMATS',
       'YouTube did not offer a downloadable stream for this video on this connection.',
       true
     );
   }
-  muxed.sort((a, b) => (b.height || 0) - (a.height || 0));
-
-  const availableFormats: MediaFormatOption[] = muxed.map((f) => {
-    const height = Number(f.height) || 360;
-    const size = f.contentLength ? Number(f.contentLength) : undefined;
-    const option: MediaFormatOption = {
-      id: `${height}p`,
-      label: qualityLabel(height),
-      quality: `${height}p`,
-      extension: 'mp4',
-      isVideo: true,
-      mediaUrl: withChunkRange(String(f.url), size),
-    };
-    if (size) option.estimatedSizeBytes = size;
-    return option;
-  });
 
   const best = availableFormats[0]!;
   const details = pr?.videoDetails || {};
@@ -176,11 +270,12 @@ export function parsePlayerResponse(videoId: string, sourceUrl: string, pr: any)
     mediaUrl: best.mediaUrl,
     directMediaUrl: best.mediaUrl,
     httpHeaders: { 'User-Agent': YOUTUBE_CLIENT.userAgent },
-    format: 'mp4',
+    format: best.extension,
     quality: best.quality,
     availableFormats,
     isCleanSourceVerified: true,
   };
+  if (best.audioUrl) media.audioUrl = best.audioUrl;
   if (details.lengthSeconds) media.durationSeconds = Number(details.lengthSeconds);
   if (thumbs.length) media.thumbnailUrl = String(thumbs[thumbs.length - 1].url);
   if (best.estimatedSizeBytes) media.estimatedSizeBytes = best.estimatedSizeBytes;

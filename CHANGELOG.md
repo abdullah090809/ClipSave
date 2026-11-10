@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- YouTube 720p/1080p (H.264) and audio-only (M4A): the app downloads the separate video and audio streams in 4 MB ranged pieces and joins them on the phone with a small native Android module (`modules/clipsave-muxer`, uses MediaMuxer, no re-encoding).
+- Free-storage check before HD downloads (needs about 2.1x the file size while joining).
+
+### Changed
+- The combined 360p YouTube stream is now only a fallback; YouTube cuts it off after about 4 MB.
+
+---
+
 ## [1.0.0] - 2026-10-26
 
 ### Added

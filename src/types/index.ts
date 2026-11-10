@@ -23,6 +23,8 @@ export interface MediaFormatOption {
   extension: string; // 'mp4' | 'mp3' | 'm4a'
   isVideo: boolean;
   mediaUrl: string;
+  /** Separate audio stream to download and join with `mediaUrl` (YouTube HD formats). */
+  audioUrl?: string | undefined;
   estimatedSizeBytes?: number | undefined;
   note?: string | undefined;
 }
@@ -37,6 +39,8 @@ export interface ResolvedMedia {
   durationSeconds?: number | undefined;
   thumbnailUrl?: string | undefined;
   mediaUrl: string;
+  /** Separate audio stream to download and join with `mediaUrl` (YouTube HD formats). */
+  audioUrl?: string | undefined;
   directMediaUrl?: string | undefined;
   httpHeaders?: Record<string, string> | undefined;
   estimatedSizeBytes?: number | undefined;

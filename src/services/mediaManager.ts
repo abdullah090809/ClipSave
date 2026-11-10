@@ -35,12 +35,15 @@ export function getActiveTempFilePaths(): Set<string> {
       (job.state === 'FAILED' && job.isRetryable);
 
     if (isProtected && job.tempFilePath) {
-      protectedSet.add(job.tempFilePath);
-      protectedSet.add(job.tempFilePath.replace(/^file:\/\//, ''));
-      // Also extract the basename (e.g. "job_123.tmp")
-      const basename = job.tempFilePath.split('/').pop();
-      if (basename) {
-        protectedSet.add(basename);
+      // YouTube HD downloads also keep "<temp>.video" and "<temp>.audio" part files.
+      for (const path of [job.tempFilePath, `${job.tempFilePath}.video`, `${job.tempFilePath}.audio`]) {
+        protectedSet.add(path);
+        protectedSet.add(path.replace(/^file:\/\//, ''));
+        // Also extract the basename (e.g. "job_123.tmp")
+        const basename = path.split('/').pop();
+        if (basename) {
+          protectedSet.add(basename);
+        }
       }
     }
   }

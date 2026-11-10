@@ -70,3 +70,8 @@ jest.mock('expo-keep-awake', () => ({
   activateKeepAwakeAsync: jest.fn(async () => {}),
   deactivateKeepAwake: jest.fn(),
 }));
+
+// Mock the native video/audio joiner (Android-only native module)
+jest.mock('./src/services/videoMuxer', () => ({
+  muxVideoAndAudio: jest.fn(async () => {}),
+}));

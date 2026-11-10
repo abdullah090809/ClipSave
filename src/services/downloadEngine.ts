@@ -24,7 +24,7 @@ import {
   dismissDownloadNotification,
   requestNotificationPermissions,
 } from './notificationManager';
-import { formatSpeed } from '../utils/formatters';
+import { formatBytes, formatSpeed } from '../utils/formatters';
 
 const activeDownloadSessions = new Map<string, FileSystem.DownloadResumable>();
 
@@ -256,6 +256,140 @@ async function runYouTubeChunkedDownload(
   await finalizeSuccessfulDownload(jobId, tempPath, safeFilename);
 }
 
+/**
+ * YouTube HD: downloads the video-only and audio-only streams in ranged pieces into two part
+ * files, joins them into one MP4 with the native muxer (no re-encoding), then saves it.
+ */
+async function runYouTubeAdaptiveDownload(
+  jobId: string,
+  videoUrl: string,
+  audioUrl: string,
+  tempPath: string,
+  safeFilename: string,
+  headers: Record<string, string>,
+  onProgress: (data: FileSystem.DownloadProgressData) => void
+): Promise<void> {
+  const videoPart = `${tempPath}.video`;
+  const audioPart = `${tempPath}.audio`;
+  let stopped = false;
+  const stopper = {
+    cancelAsync: async () => {
+      stopped = true;
+    },
+    pauseAsync: async () => {
+      stopped = true;
+    },
+  };
+  activeDownloadSessions.set(jobId, stopper as unknown as FileSystem.DownloadResumable);
+
+  const stoppedByUser = () => {
+    const state = getQueue().find((j) => j.id === jobId)?.state;
+    return stopped || state === 'CANCELLED' || state === 'PAUSED';
+  };
+  const removeParts = async () => {
+    for (const path of [videoPart, audioPart]) {
+      try {
+        await FileSystem.deleteAsync(path, { idempotent: true });
+      } catch {
+        // Ignore
+      }
+    }
+  };
+
+  let phase: 'download' | 'join' = 'download';
+  try {
+    const { downloadYouTubeChunked, parseContentLengthParam } = await import('./youtubeChunkedDownload');
+    const videoTotal = parseContentLengthParam(videoUrl);
+    const audioTotal = parseContentLengthParam(audioUrl);
+    const grandTotal = videoTotal !== undefined && audioTotal !== undefined ? videoTotal + audioTotal : undefined;
+
+    // The video, the audio and the joined file exist side by side for a moment.
+    if (grandTotal !== undefined && typeof (FileSystem as any).getFreeDiskStorageAsync === 'function') {
+      try {
+        const free: number = await (FileSystem as any).getFreeDiskStorageAsync();
+        const needed = Math.ceil(grandTotal * 2.1);
+        if (Number.isFinite(free) && free > 0 && free < needed) {
+          throw new Error(
+            `Not enough free storage. This download needs about ${formatBytes(needed)} free while it is being joined (you have ${formatBytes(free)}). Free some space or pick a lower quality.`
+          );
+        }
+      } catch (storageErr: any) {
+        if (/Not enough free storage/.test(storageErr?.message || '')) throw storageErr;
+        // Could not read free space: carry on.
+      }
+    }
+
+    const videoBytes = await downloadYouTubeChunked({
+      url: videoUrl,
+      headers,
+      destUri: videoPart,
+      totalBytes: videoTotal,
+      shouldStop: () => stopped,
+      onProgress: (written) =>
+        onProgress({
+          totalBytesWritten: written,
+          totalBytesExpectedToWrite: grandTotal ?? -1,
+        } as FileSystem.DownloadProgressData),
+    });
+    await downloadYouTubeChunked({
+      url: audioUrl,
+      headers,
+      destUri: audioPart,
+      totalBytes: audioTotal,
+      shouldStop: () => stopped,
+      onProgress: (written) =>
+        onProgress({
+          totalBytesWritten: videoBytes + written,
+          totalBytesExpectedToWrite: grandTotal ?? -1,
+        } as FileSystem.DownloadProgressData),
+    });
+
+    if (stoppedByUser()) {
+      await removeParts();
+      activeDownloadSessions.delete(jobId);
+      return;
+    }
+
+    phase = 'join';
+    updateJobInQueue(jobId, {
+      state: 'FINALIZING',
+      statusMessage: 'Joining video and sound...',
+      speedBytesPerSecond: 0,
+    });
+    const { muxVideoAndAudio } = await import('./videoMuxer');
+    await muxVideoAndAudio(videoPart, audioPart, tempPath);
+    await removeParts();
+  } catch (err: any) {
+    activeDownloadSessions.delete(jobId);
+    dismissDownloadNotification(jobId).catch(() => {});
+    await removeParts();
+    if (stoppedByUser()) {
+      return;
+    }
+    try {
+      await FileSystem.deleteAsync(tempPath, { idempotent: true });
+    } catch {
+      // Ignore
+    }
+    const detail = err?.message || 'Download was interrupted. Please retry.';
+    updateJobInQueue(jobId, {
+      state: 'FAILED',
+      statusMessage: phase === 'join' ? 'Could not join video and sound' : 'Download failed',
+      errorMessage: phase === 'join' ? `Could not join video and sound: ${detail}` : detail,
+      isRetryable: true,
+      supportsResume: false,
+    });
+    processNextQueuedJob().catch(() => {});
+    return;
+  }
+
+  if (stoppedByUser()) {
+    activeDownloadSessions.delete(jobId);
+    return;
+  }
+  await finalizeSuccessfulDownload(jobId, tempPath, safeFilename);
+}
+
 async function executeDownloadStream(
   jobId: string,
   mediaUrl: string,
@@ -337,6 +471,20 @@ async function executeDownloadStream(
     };
 
     notifyDownloadStarted(jobId, currentJob?.media.title || 'Video').catch(() => {});
+
+    // YouTube HD: separate video + audio streams, downloaded in pieces and joined on the phone.
+    if (currentJob?.media.platform === 'youtube' && currentJob.media.audioUrl && /googlevideo\.com/i.test(mediaUrl)) {
+      await runYouTubeAdaptiveDownload(
+        jobId,
+        mediaUrl,
+        currentJob.media.audioUrl,
+        tempPath,
+        safeFilename,
+        currentJob.media.httpHeaders || {},
+        callback
+      );
+      return;
+    }
 
     // YouTube direct streams are fetched in small ranged pieces; one big request gets refused or throttled.
     if (currentJob?.media.platform === 'youtube' && /googlevideo\.com/i.test(mediaUrl)) {
