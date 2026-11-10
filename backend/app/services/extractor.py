@@ -645,25 +645,48 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
         loop = asyncio.get_running_loop()
         yt_proxy_set = bool(os.environ.get("YT_PROXY") or getattr(settings, "YT_PROXY", None))
         fast_tried = False
-        if is_youtube and not yt_proxy_set:
-            fast_tried = True
-            # Datacenter IPs are almost always bot-blocked by yt-dlp, so try the
-            # fast Invidious path first instead of waiting out slow yt-dlp failures.
-            try:
-                quick = await asyncio.wait_for(
-                    loop.run_in_executor(_thread_pool, _resolve_youtube_fallback, url, base_url, 5.0),
-                    timeout=7,
-                )
-                if quick:
-                    log_safe_info("YouTube fast-path (Invidious) successful", url)
-                    return quick
-            except Exception as fb_err:
-                log_safe_error("YouTube fast-path failed", fb_err, url)
         try:
-            info = await asyncio.wait_for(
-                loop.run_in_executor(_thread_pool, _run_ytdlp_extract, url),
-                timeout=(6 if (is_youtube and fast_tried) else settings.REQUEST_TIMEOUT_SECONDS),
-            )
+            if is_youtube and not yt_proxy_set:
+                fast_tried = True
+                # Run yt-dlp and the Invidious race side by side and take whichever
+                # succeeds first. The whole thing answers within ~4.5s, because the
+                # hosting gateway cuts off slow requests with a non-JSON error page.
+                fb_task = asyncio.ensure_future(asyncio.wait_for(
+                    loop.run_in_executor(_thread_pool, _resolve_youtube_fallback, url, base_url, 3.5),
+                    timeout=4.5))
+                yt_task = asyncio.ensure_future(asyncio.wait_for(
+                    loop.run_in_executor(_thread_pool, _run_ytdlp_extract, url),
+                    timeout=4.5))
+                pending = {fb_task, yt_task}
+                info = None
+                yt_error: Optional[BaseException] = None
+                while pending and info is None:
+                    done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                    for t in done:
+                        if t is fb_task:
+                            try:
+                                quick = t.result()
+                            except Exception as fb_err:
+                                log_safe_error("YouTube Invidious path failed", fb_err, url)
+                                quick = None
+                            if quick:
+                                yt_task.cancel()
+                                log_safe_info("YouTube resolved via Invidious", url)
+                                return quick
+                        else:
+                            try:
+                                info = t.result()
+                            except Exception as e_yt:
+                                yt_error = e_yt
+                if info is None:
+                    fb_task.cancel()
+                    raise yt_error if yt_error else asyncio.TimeoutError()
+                fb_task.cancel()
+            else:
+                info = await asyncio.wait_for(
+                    loop.run_in_executor(_thread_pool, _run_ytdlp_extract, url),
+                    timeout=settings.REQUEST_TIMEOUT_SECONDS,
+                )
         except asyncio.TimeoutError:
             log_safe_error("Extraction timed out", Exception("Timeout"), url)
             raise ExtractionError(
