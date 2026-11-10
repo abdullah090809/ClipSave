@@ -2,6 +2,7 @@ import { ResolvedMedia, ResolveError } from '../types';
 import { getSettings } from '../storage/settingsStore';
 import { resolveMockTikTokUrl } from './mockResolver';
 import { detectPlatform } from '../utils/urlValidator';
+import { resolveYouTubeOnDevice, YOUTUBE_BACKEND_FALLBACK } from './youtubeLocal';
 
 /**
  * Extracts the SnapDeploy container subdomain if present in URL
@@ -106,6 +107,19 @@ export async function resolveTikTokUrl(
     return resolveMockTikTokUrl(url);
   }
 
+  // YouTube blocks datacenter IPs, so resolve it on the phone using the user's own connection.
+  if (detectPlatform(url).platform === 'youtube') {
+    onStatusUpdate?.('Resolving on your device...');
+    try {
+      return await resolveYouTubeOnDevice(url);
+    } catch (localErr: any) {
+      if (!YOUTUBE_BACKEND_FALLBACK) {
+        throw localErr;
+      }
+      onStatusUpdate?.('Trying server...');
+    }
+  }
+
   const baseUrl = settings.backendBaseUrl.replace(/\/$/, '');
   const endpoint = `${baseUrl}/v1/resolve`;
   const subdomain = extractSnapDeploySubdomain(baseUrl);
@@ -149,8 +163,8 @@ export async function resolveTikTokUrl(
         await wakeBackendContainer(subdomain);
       }
 
-      // Poll until container wakes up (up to 40 seconds)
-      const maxAttempts = 18;
+      // Poll until container wakes up (up to ~100 seconds; SnapDeploy cold start takes 60-90s)
+      const maxAttempts = 45;
       let isAwake = false;
 
       for (let i = 0; i < maxAttempts; i++) {
