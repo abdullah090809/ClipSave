@@ -175,6 +175,7 @@ async function finalizeSuccessfulDownload(
   safeFilename: string
 ) {
   activeDownloadSessions.delete(jobId);
+  autoRetryCounts.delete(jobId);
 
   updateJobInQueue(jobId, {
     state: 'FINALIZING',
@@ -259,6 +260,55 @@ function makeYouTubeUrlRefresher(jobId: string, part: 'video' | 'audio') {
   };
 }
 
+/**
+ * Automatic retries. When an on-device YouTube download fails with something that may pass (a dropped
+ * connection, YouTube refusing for longer than the built-in wait), the app waits a little and continues
+ * from the bytes already saved, up to three times, before showing "Download failed".
+ * Pressing Retry yourself starts the count again.
+ */
+export const AUTO_RETRY_LIMIT = 3;
+const AUTO_RETRY_DELAY_MS = 8000;
+const autoRetryCounts = new Map<string, number>();
+const autoRetryPending = new Set<string>();
+
+/** False for errors that waiting cannot fix: no storage space, or a link that is gone. */
+export function isAutoRetryable(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { name?: string; message?: string };
+  if (e.name === 'DownloadStoppedError') return false;
+  const msg = String(e.message ?? '');
+  if (/Not enough free storage/i.test(msg)) return false;
+  if (/HTTP (400|404|410)\b/.test(msg)) return false;
+  return true;
+}
+
+/** Returns true when an automatic retry was handled (so the caller must not mark the job as failed). */
+async function scheduleAutoRetry(jobId: string, err: unknown): Promise<boolean> {
+  if (!isAutoRetryable(err)) return false;
+  const tries = autoRetryCounts.get(jobId) ?? 0;
+  if (tries >= AUTO_RETRY_LIMIT) return false;
+  autoRetryCounts.set(jobId, tries + 1);
+  autoRetryPending.add(jobId);
+  try {
+    updateJobInQueue(jobId, {
+      state: 'DOWNLOADING',
+      statusMessage: `Connection problem. Retrying automatically (${tries + 1} of ${AUTO_RETRY_LIMIT})...`,
+      speedBytesPerSecond: 0,
+    });
+    const waitMs = AUTO_RETRY_DELAY_MS * (tries + 1);
+    for (let waited = 0; waited < waitMs; waited += 1000) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const state = getQueue().find((j) => j.id === jobId)?.state;
+      // Paused, cancelled or removed while waiting: the user decided, so do nothing more.
+      if (!state || state === 'CANCELLED' || state === 'PAUSED') return true;
+    }
+    await retryDownload(jobId, true);
+  } finally {
+    autoRetryPending.delete(jobId);
+  }
+  return true;
+}
+
 async function runYouTubeChunkedDownload(
   jobId: string,
   mediaUrl: string,
@@ -307,6 +357,9 @@ async function runYouTubeChunkedDownload(
     activeDownloadSessions.delete(jobId);
     dismissDownloadNotification(jobId).catch(() => {});
     if (stoppedByUser()) {
+      return;
+    }
+    if (await scheduleAutoRetry(jobId, err)) {
       return;
     }
     // The bytes already saved are good, so keep them: Retry continues from there.
@@ -397,6 +450,20 @@ async function runYouTubeAdaptiveDownload(
       }
     }
 
+    // On a resume the video part may already be mostly done. Count it from the start, so the bar
+    // does not drop to the audio-only share while the audio part is checked and then jump back.
+    let videoPreserved = 0;
+    if (isResume) {
+      try {
+        const info = await FileSystem.getInfoAsync(videoPart);
+        if (info.exists && !info.isDirectory && info.size > 0 && (videoTotal === undefined || info.size <= videoTotal)) {
+          videoPreserved = info.size;
+        }
+      } catch {
+        videoPreserved = 0;
+      }
+    }
+
     // Audio first: it is small (about 30 MB), and YouTube tends to start pausing us after a lot of
     // video has been fetched, so the audio should not be left for the end.
     const audioBytes = await downloadYouTubeChunked({
@@ -410,7 +477,7 @@ async function runYouTubeAdaptiveDownload(
       refreshUrl: makeYouTubeUrlRefresher(jobId, 'audio'),
       onProgress: (written) =>
         onProgress({
-          totalBytesWritten: written,
+          totalBytesWritten: written + videoPreserved,
           totalBytesExpectedToWrite: grandTotal ?? -1,
         } as FileSystem.DownloadProgressData),
     });
@@ -452,6 +519,9 @@ async function runYouTubeAdaptiveDownload(
     // only a failed join throws them away (cancel and remove delete them separately).
     if (phase === 'join') await removeParts();
     if (stoppedByUser()) {
+      return;
+    }
+    if (phase === 'download' && (await scheduleAutoRetry(jobId, err))) {
       return;
     }
     try {
@@ -941,9 +1011,10 @@ export async function removeDownloadJob(jobId: string): Promise<void> {
   processNextQueuedJob().catch(() => {});
 }
 
-export async function retryDownload(jobId: string): Promise<void> {
+export async function retryDownload(jobId: string, automatic: boolean = false): Promise<void> {
   const job = getQueue().find((j) => j.id === jobId);
   if (!job) return;
+  if (!automatic) autoRetryCounts.delete(jobId);
 
   const settings = await getSettings();
   const maxConcurrency = Math.max(1, settings.maxConcurrentDownloads || 2);
@@ -995,7 +1066,7 @@ if (typeof AppState?.addEventListener === 'function') {
       const queue = getQueue();
       // Look for active downloading jobs whose network connection dropped while backgrounded
       const droppedJobs = queue.filter(
-        (j) => j.state === 'DOWNLOADING' && !activeDownloadSessions.has(j.id)
+        (j) => j.state === 'DOWNLOADING' && !activeDownloadSessions.has(j.id) && !autoRetryPending.has(j.id)
       );
       for (const dropped of droppedJobs) {
         resumeDownload(dropped.id).catch(() => {});

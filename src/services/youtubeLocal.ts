@@ -4,18 +4,49 @@ import { MediaFormatOption, ResolvedMedia, ResolveError } from '../types';
  * On-device YouTube resolver.
  *
  * The request is made from the phone, so YouTube sees the user's own home or mobile
- * IP instead of a datacenter IP. It mimics the ANDROID_VR client, using the same
- * settings as yt-dlp 2026.10.x (client 28, version 1.65.10).
+ * IP instead of a datacenter IP.
  *
- * FORMATS: the combined 360p stream (itag 18) is cut off by YouTube after ~4 MB, but the
- *  separate H.264 video-only and AAC audio-only streams download fully (verified with
- *  scripts/test-youtube-adaptive.js). The app downloads both and joins them on the phone.
+ * CLIENT: since 2026-08-17 YouTube refuses most downloads for the old ANDROID_VR client
+ * (1.65.10) after a few MB (yt-dlp removed it from its defaults, issue #17456). The app now asks
+ * as the VISIONOS client, which yt-dlp uses by default and which needs no PO token. Checked on a
+ * PC with scripts/test-youtube-visionos.js: audio and 720p/1080p H.264 streams downloaded 300 MB
+ * with no refusal. ANDROID_VR stays as a fallback if VISIONOS is refused for a video.
+ *
+ * FORMATS: VISIONOS offers no combined video+sound stream, only separate H.264 video-only and
+ * AAC audio-only streams. The app downloads both and joins them on the phone.
  * LIMITS:
- *  - Client versions go stale. If YouTube starts rejecting this one, update
- *    YOUTUBE_CLIENT from yt-dlp's INNERTUBE_CLIENTS['android_vr'].
+ *  - Client versions go stale. If YouTube starts rejecting VISIONOS, update it from yt-dlp's
+ *    INNERTUBE_CLIENTS['visionos'] (yt_dlp/extractor/youtube/_base.py).
+ *  - "Made for kids" videos are not available with the VISIONOS client.
  */
 
-export const YOUTUBE_CLIENT = {
+export interface YouTubeClientConfig {
+  nameId: number;
+  version: string;
+  userAgent: string;
+  context: Record<string, string | number>;
+  /** The old ANDROID_VR request included this playback context; VISIONOS works without it. */
+  html5Preference: boolean;
+}
+
+export const VISIONOS_CLIENT: YouTubeClientConfig = {
+  nameId: 101,
+  version: '1.02',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  context: {
+    clientName: 'VISIONOS',
+    clientVersion: '1.02',
+    deviceMake: 'Apple',
+    deviceModel: 'RealityDevice17,1',
+    osName: 'visionOS',
+    osVersion: '26.5.23O471',
+    hl: 'en',
+  },
+  html5Preference: false,
+};
+
+export const ANDROID_VR_CLIENT: YouTubeClientConfig = {
   nameId: 28,
   version: '1.65.10',
   userAgent:
@@ -30,7 +61,12 @@ export const YOUTUBE_CLIENT = {
     androidSdkVersion: 32,
     hl: 'en',
   },
-} as const;
+  html5Preference: true,
+};
+
+/** Tried in this order; the first one YouTube accepts for the video is used. */
+export const YOUTUBE_CLIENTS: YouTubeClientConfig[] = [VISIONOS_CLIENT, ANDROID_VR_CLIENT];
+export const YOUTUBE_CLIENT = VISIONOS_CLIENT;
 
 /** If true, a failed on-device resolve falls through to the (usually blocked) backend. */
 export const YOUTUBE_BACKEND_FALLBACK = false;
@@ -74,24 +110,34 @@ export function extractYouTubeVideoId(input: string): string | null {
   return candidate && VIDEO_ID_RE.test(candidate) ? candidate : null;
 }
 
-export function buildPlayerBody(videoId: string, visitorData?: string): Record<string, unknown> {
-  const client: Record<string, unknown> = { ...YOUTUBE_CLIENT.context };
-  if (visitorData) client.visitorData = visitorData;
-  return {
+export function buildPlayerBody(
+  videoId: string,
+  visitorData?: string,
+  client: YouTubeClientConfig = YOUTUBE_CLIENT
+): Record<string, unknown> {
+  const clientContext: Record<string, unknown> = { ...client.context };
+  if (visitorData) clientContext.visitorData = visitorData;
+  const body: Record<string, unknown> = {
     videoId,
-    context: { client },
-    playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } },
+    context: { client: clientContext },
     contentCheckOk: true,
     racyCheckOk: true,
   };
+  if (client.html5Preference) {
+    body.playbackContext = { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } };
+  }
+  return body;
 }
 
-export function buildPlayerHeaders(visitorData?: string): Record<string, string> {
+export function buildPlayerHeaders(
+  visitorData?: string,
+  client: YouTubeClientConfig = YOUTUBE_CLIENT
+): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'User-Agent': YOUTUBE_CLIENT.userAgent,
-    'X-YouTube-Client-Name': String(YOUTUBE_CLIENT.nameId),
-    'X-YouTube-Client-Version': YOUTUBE_CLIENT.version,
+    'User-Agent': client.userAgent,
+    'X-YouTube-Client-Name': String(client.nameId),
+    'X-YouTube-Client-Version': client.version,
     Origin: 'https://www.youtube.com',
   };
   if (visitorData) headers['X-Goog-Visitor-Id'] = visitorData;
@@ -221,7 +267,12 @@ export function buildFormatOptions(pr: any): MediaFormatOption[] {
 }
 
 /** Turns a raw InnerTube player response into the app's ResolvedMedia, or throws a ResolveError. */
-export function parsePlayerResponse(videoId: string, sourceUrl: string, pr: any): ResolvedMedia {
+export function parsePlayerResponse(
+  videoId: string,
+  sourceUrl: string,
+  pr: any,
+  client: YouTubeClientConfig = YOUTUBE_CLIENT
+): ResolvedMedia {
   const status: string | undefined = pr?.playabilityStatus?.status;
   const reason: string = String(pr?.playabilityStatus?.reason || '');
 
@@ -269,7 +320,7 @@ export function parsePlayerResponse(videoId: string, sourceUrl: string, pr: any)
     author: String(details.author || 'Unknown Creator'),
     mediaUrl: best.mediaUrl,
     directMediaUrl: best.mediaUrl,
-    httpHeaders: { 'User-Agent': YOUTUBE_CLIENT.userAgent },
+    httpHeaders: { 'User-Agent': client.userAgent },
     format: best.extension,
     quality: best.quality,
     availableFormats,
@@ -318,14 +369,14 @@ export async function fetchVisitorData(videoId: string, fetchImpl: typeof fetch 
   }
 }
 
-export async function resolveYouTubeOnDevice(url: string, fetchImpl: typeof fetch = fetch): Promise<ResolvedMedia> {
-  const videoId = extractYouTubeVideoId(url);
-  if (!videoId) {
-    throw fail('INVALID_URL', 'That does not look like a valid YouTube video link.', false, 400);
-  }
-
-  const visitorData = await fetchVisitorData(videoId, fetchImpl);
-
+/** Asks YouTube for the video as one client. Throws a ResolveError when it cannot be used. */
+async function resolveWithClient(
+  client: YouTubeClientConfig,
+  videoId: string,
+  url: string,
+  visitorData: string | undefined,
+  fetchImpl: typeof fetch
+): Promise<ResolvedMedia> {
   let response: Response;
   try {
     response = await fetchWithTimeout(
@@ -333,8 +384,8 @@ export async function resolveYouTubeOnDevice(url: string, fetchImpl: typeof fetc
       PLAYER_ENDPOINT,
       {
         method: 'POST',
-        headers: buildPlayerHeaders(visitorData),
-        body: JSON.stringify(buildPlayerBody(videoId, visitorData)),
+        headers: buildPlayerHeaders(visitorData, client),
+        body: JSON.stringify(buildPlayerBody(videoId, visitorData, client)),
       },
       15000
     );
@@ -357,5 +408,31 @@ export async function resolveYouTubeOnDevice(url: string, fetchImpl: typeof fetc
   if (!data) {
     throw fail('MALFORMED_METADATA', 'YouTube returned an unreadable response.', true);
   }
-  return parsePlayerResponse(videoId, url, data);
+  return parsePlayerResponse(videoId, url, data, client);
+}
+
+export async function resolveYouTubeOnDevice(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+  clients: YouTubeClientConfig[] = YOUTUBE_CLIENTS
+): Promise<ResolvedMedia> {
+  const videoId = extractYouTubeVideoId(url);
+  if (!videoId) {
+    throw fail('INVALID_URL', 'That does not look like a valid YouTube video link.', false, 400);
+  }
+
+  const visitorData = await fetchVisitorData(videoId, fetchImpl);
+
+  let firstError: unknown;
+  for (const client of clients) {
+    try {
+      return await resolveWithClient(client, videoId, url, visitorData, fetchImpl);
+    } catch (err) {
+      // No connection: another client will not help.
+      if ((err as ResolveError)?.code === 'NETWORK_FAILURE') throw err;
+      if (firstError === undefined) firstError = err;
+    }
+  }
+  // Report what the preferred client said.
+  throw firstError;
 }

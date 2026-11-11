@@ -1,4 +1,13 @@
-import { buildFormatOptions, extractYouTubeVideoId, parsePlayerResponse } from './youtubeLocal';
+import {
+  ANDROID_VR_CLIENT,
+  VISIONOS_CLIENT,
+  buildFormatOptions,
+  buildPlayerBody,
+  buildPlayerHeaders,
+  extractYouTubeVideoId,
+  parsePlayerResponse,
+  resolveYouTubeOnDevice,
+} from './youtubeLocal';
 
 const video = (itag: number, height: number, fps: number, bitrate: number, size: number, codec = 'avc1.640028') => ({
   itag,
@@ -145,5 +154,75 @@ describe('parsePlayerResponse', () => {
       expect(e.code).toBe('YOUTUBE_BOT_CHECK');
       expect(e.isRetryable).toBe(true);
     }
+  });
+});
+
+describe('YouTube client', () => {
+  test('asks as the visionOS client by default, without the old playback context', () => {
+    const body: any = buildPlayerBody('O51JbL6nA48', 'visitor123');
+    expect(body.context.client.clientName).toBe('VISIONOS');
+    expect(body.context.client.clientVersion).toBe('1.02');
+    expect(body.context.client.visitorData).toBe('visitor123');
+    expect(body.playbackContext).toBeUndefined();
+    const headers = buildPlayerHeaders('visitor123');
+    expect(headers['X-YouTube-Client-Name']).toBe('101');
+    expect(headers['User-Agent']).toBe(VISIONOS_CLIENT.userAgent);
+  });
+
+  test('the old Android VR client keeps its own settings', () => {
+    const body: any = buildPlayerBody('O51JbL6nA48', undefined, ANDROID_VR_CLIENT);
+    expect(body.context.client.clientName).toBe('ANDROID_VR');
+    expect(body.playbackContext).toBeDefined();
+    expect(buildPlayerHeaders(undefined, ANDROID_VR_CLIENT)['X-YouTube-Client-Name']).toBe('28');
+  });
+
+  test('parsePlayerResponse puts the client user agent on the media headers', () => {
+    const pr = response([video(298, 720, 30, 2_000_000, 700_000_000), audio(140, 130_000, 29_000_000)], []);
+    expect(parsePlayerResponse('O51JbL6nA48', 'u', pr).httpHeaders?.['User-Agent']).toBe(VISIONOS_CLIENT.userAgent);
+    expect(parsePlayerResponse('O51JbL6nA48', 'u', pr, ANDROID_VR_CLIENT).httpHeaders?.['User-Agent']).toBe(
+      ANDROID_VR_CLIENT.userAgent
+    );
+  });
+});
+
+describe('resolveYouTubeOnDevice client fallback', () => {
+  const goodPr = response([video(298, 720, 30, 2_000_000, 700_000_000), audio(140, 130_000, 29_000_000)], []);
+  const jsonRes = (data: unknown, ok = true, status = 200) =>
+    ({ ok, status, json: async () => data, text: async () => '' }) as unknown as Response;
+
+  function fakeFetch(playerReplies: Response[]) {
+    const used: string[] = [];
+    const fn = (async (url: string, init?: any) => {
+      if (String(url).includes('/youtubei/v1/player')) {
+        used.push(JSON.parse(init.body).context.client.clientName);
+        return playerReplies.shift()!;
+      }
+      return jsonRes({}, true); // the visitor-data page
+    }) as unknown as typeof fetch;
+    return { fn, used };
+  }
+
+  test('uses the visionOS client when YouTube accepts it', async () => {
+    const { fn, used } = fakeFetch([jsonRes(goodPr)]);
+    const media = await resolveYouTubeOnDevice('https://youtu.be/O51JbL6nA48', fn);
+    expect(used).toEqual(['VISIONOS']);
+    expect(media.httpHeaders?.['User-Agent']).toBe(VISIONOS_CLIENT.userAgent);
+  });
+
+  test('falls back to Android VR when visionOS is refused for the video', async () => {
+    const refused = { playabilityStatus: { status: 'UNPLAYABLE', reason: 'Not available on this app' } };
+    const { fn, used } = fakeFetch([jsonRes(refused), jsonRes(goodPr)]);
+    const media = await resolveYouTubeOnDevice('https://youtu.be/O51JbL6nA48', fn);
+    expect(used).toEqual(['VISIONOS', 'ANDROID_VR']);
+    expect(media.httpHeaders?.['User-Agent']).toBe(ANDROID_VR_CLIENT.userAgent);
+  });
+
+  test('reports the preferred client\'s error when every client fails', async () => {
+    const refused = { playabilityStatus: { status: 'UNPLAYABLE', reason: 'first client says no' } };
+    const refused2 = { playabilityStatus: { status: 'UNPLAYABLE', reason: 'second client says no' } };
+    const { fn } = fakeFetch([jsonRes(refused), jsonRes(refused2)]);
+    await expect(resolveYouTubeOnDevice('https://youtu.be/O51JbL6nA48', fn)).rejects.toMatchObject({
+      message: 'first client says no',
+    });
   });
 });

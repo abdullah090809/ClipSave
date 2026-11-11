@@ -4,6 +4,7 @@ import {
   resumeDownload,
   cancelDownload,
   retryDownload,
+  isAutoRetryable,
   removeDownloadJob,
   getActiveDownloadSessionsCount,
   _resetActiveSessionsForTesting,
@@ -276,5 +277,24 @@ describe('downloadEngine', () => {
     // Verify createDownloadResumable received resumeData offset
     const lastCall = (FileSystem.createDownloadResumable as jest.Mock).mock.calls.slice(-1)[0];
     expect(lastCall[4]).toBe('3200000');
+  });
+});
+
+
+describe('automatic retry rules', () => {
+  test('retries connection problems and YouTube refusals', () => {
+    expect(isAutoRetryable(new Error('Network request failed'))).toBe(true);
+    expect(isAutoRetryable(new Error('YouTube kept refusing the download (HTTP 403) for 5 minutes.'))).toBe(true);
+    expect(isAutoRetryable(new Error('Request timed out'))).toBe(true);
+  });
+
+  test('does not retry what waiting cannot fix', () => {
+    expect(isAutoRetryable(new Error('Not enough free storage. This download needs about 2 GB'))).toBe(false);
+    expect(isAutoRetryable(new Error('YouTube refused the download (HTTP 410).'))).toBe(false);
+    expect(isAutoRetryable(new Error('YouTube refused the download (HTTP 404).'))).toBe(false);
+    const stopped = new Error('stopped');
+    stopped.name = 'DownloadStoppedError';
+    expect(isAutoRetryable(stopped)).toBe(false);
+    expect(isAutoRetryable(undefined)).toBe(false);
   });
 });
