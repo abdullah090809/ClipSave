@@ -188,6 +188,36 @@ async function finalizeSuccessfulDownload(
   processNextQueuedJob().catch(() => {});
 }
 
+/**
+ * YouTube sometimes refuses pieces for about a minute after a burst of downloading. The chunked
+ * downloader waits and retries; these two helpers keep the user informed and fetch a fresh stream
+ * URL (same quality) when the old one may have gone stale.
+ */
+function youTubeWaitNotice(jobId: string) {
+  return ({ waitedMs }: { waitedMs: number; status: number }) => {
+    const secs = Math.round(waitedMs / 1000);
+    updateJobInQueue(jobId, {
+      statusMessage:
+        secs < 5
+          ? 'YouTube paused the download. Resuming automatically...'
+          : `YouTube paused the download. Still waiting (${secs}s)...`,
+      speedBytesPerSecond: 0,
+    });
+  };
+}
+
+function makeYouTubeUrlRefresher(jobId: string, part: 'video' | 'audio') {
+  return async (): Promise<string | undefined> => {
+    const job = getQueue().find((j) => j.id === jobId);
+    if (!job) return undefined;
+    const { resolveYouTubeOnDevice } = await import('./youtubeLocal');
+    const fresh = await resolveYouTubeOnDevice(job.media.sourceUrl);
+    const option = fresh.availableFormats?.find((f) => f.quality === job.media.quality);
+    if (!option) return undefined;
+    return part === 'audio' ? option.audioUrl ?? option.mediaUrl : option.mediaUrl;
+  };
+}
+
 async function runYouTubeChunkedDownload(
   jobId: string,
   mediaUrl: string,
@@ -221,6 +251,8 @@ async function runYouTubeChunkedDownload(
       destUri: tempPath,
       totalBytes: estimatedTotal,
       shouldStop: () => stopped,
+      onWaiting: youTubeWaitNotice(jobId),
+      refreshUrl: makeYouTubeUrlRefresher(jobId, 'video'),
       onProgress: (written, total) =>
         onProgress({
           totalBytesWritten: written,
@@ -325,6 +357,8 @@ async function runYouTubeAdaptiveDownload(
       destUri: videoPart,
       totalBytes: videoTotal,
       shouldStop: () => stopped,
+      onWaiting: youTubeWaitNotice(jobId),
+      refreshUrl: makeYouTubeUrlRefresher(jobId, 'video'),
       onProgress: (written) =>
         onProgress({
           totalBytesWritten: written,
@@ -337,6 +371,8 @@ async function runYouTubeAdaptiveDownload(
       destUri: audioPart,
       totalBytes: audioTotal,
       shouldStop: () => stopped,
+      onWaiting: youTubeWaitNotice(jobId),
+      refreshUrl: makeYouTubeUrlRefresher(jobId, 'audio'),
       onProgress: (written) =>
         onProgress({
           totalBytesWritten: videoBytes + written,

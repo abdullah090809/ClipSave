@@ -10,6 +10,15 @@ import { File, FileMode } from 'expo-file-system';
 export const CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_ATTEMPTS_PER_CHUNK = 3;
 
+/**
+ * YouTube answers HTTP 403 (sometimes 429) after a burst of downloading and lifts the block by itself.
+ * Measured on a PC: the block started after about 20 MB and cleared after about a minute. So a refusal
+ * is treated as a pause: wait, retry the same piece, and ask for a fresh URL every third retry.
+ */
+export const COOLDOWN_RETRY_MS = 10_000;
+export const COOLDOWN_MAX_WAIT_MS = 5 * 60_000;
+const COOLDOWN_STATUSES = [403, 429];
+
 export class DownloadStoppedError extends Error {
   constructor() {
     super('Download stopped');
@@ -27,6 +36,16 @@ export interface ChunkedDownloadOptions {
   onProgress: (writtenBytes: number, totalBytes: number | undefined) => void;
   shouldStop: () => boolean;
   fetchImpl?: typeof fetch;
+  /** Called while YouTube is refusing pieces and the download is waiting to try again. */
+  onWaiting?: (info: { waitedMs: number; status: number }) => void;
+  /** Returns a fresh URL for the same stream (the old one may have gone stale). Called every third retry. */
+  refreshUrl?: () => Promise<string | undefined>;
+  /** Pause between retries after a refusal. */
+  retryDelayMs?: number;
+  /** Give up on one piece after waiting this long in total. */
+  maxWaitMs?: number;
+  /** Test hook. */
+  sleepImpl?: (ms: number) => Promise<void>;
 }
 
 export function stripRangeParam(url: string): string {
@@ -71,6 +90,23 @@ export async function downloadYouTubeChunked(opts: ChunkedDownloadOptions): Prom
   file.create({ overwrite: true });
   const handle = file.open(FileMode.Truncate);
 
+  const retryDelayMs = opts.retryDelayMs ?? COOLDOWN_RETRY_MS;
+  const maxWaitMs = opts.maxWaitMs ?? COOLDOWN_MAX_WAIT_MS;
+  const sleepFn = opts.sleepImpl ?? sleep;
+  let currentBase = baseUrl;
+
+  /** Sleeps in one-second slices so Cancel and Pause react quickly. */
+  const waitInterruptibly = async (ms: number) => {
+    let left = ms;
+    while (left > 0) {
+      if (opts.shouldStop()) throw new DownloadStoppedError();
+      const slice = Math.min(1000, left);
+      await sleepFn(slice);
+      left -= slice;
+    }
+    if (opts.shouldStop()) throw new DownloadStoppedError();
+  };
+
   let written = 0;
   try {
     while (total === undefined || written < total) {
@@ -81,21 +117,45 @@ export async function downloadYouTubeChunked(opts: ChunkedDownloadOptions): Prom
       const expected = end - start + 1;
 
       let bytes: Uint8Array | undefined;
-      let lastError: unknown;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_CHUNK; attempt++) {
+      let networkAttempts = 0;
+      let waitedMs = 0;
+      let cooldownTries = 0;
+      while (!bytes) {
         try {
-          bytes = await fetchChunk(fetchImpl, baseUrl, start, end, opts.headers);
-          break;
+          bytes = await fetchChunk(fetchImpl, currentBase, start, end, opts.headers);
         } catch (err) {
-          lastError = err;
-          // A refusal (403/404/410) will not improve by retrying the same URL.
           const status = (err as { status?: number }).status;
-          if (status === 403 || status === 404 || status === 410) break;
+          if (status === 404 || status === 410) throw err;
+
+          if (status !== undefined && COOLDOWN_STATUSES.includes(status)) {
+            if (waitedMs >= maxWaitMs) {
+              const mins = Math.max(1, Math.round(waitedMs / 60_000));
+              throw new Error(
+                `YouTube kept refusing the download (HTTP ${status}) for ${mins} minute${mins === 1 ? '' : 's'}. Try again in a few minutes.`
+              );
+            }
+            opts.onWaiting?.({ waitedMs, status });
+            await waitInterruptibly(retryDelayMs);
+            waitedMs += retryDelayMs;
+            cooldownTries++;
+            if (opts.refreshUrl && cooldownTries % 3 === 0) {
+              try {
+                const fresh = await opts.refreshUrl();
+                if (fresh) currentBase = stripRangeParam(fresh);
+              } catch {
+                // keep the old URL
+              }
+            }
+            continue;
+          }
+
+          // Network hiccup: a few quick retries.
+          networkAttempts++;
+          if (networkAttempts >= MAX_ATTEMPTS_PER_CHUNK) throw err;
           if (opts.shouldStop()) throw new DownloadStoppedError();
-          await sleep(500 * attempt);
+          await sleepFn(500 * networkAttempts);
         }
       }
-      if (!bytes) throw lastError instanceof Error ? lastError : new Error('Download failed.');
       if (bytes.byteLength === 0) {
         if (total === undefined) break; // reached the end of an unknown-length file
         throw new Error('YouTube returned an empty response.');

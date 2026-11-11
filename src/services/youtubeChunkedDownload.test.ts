@@ -111,20 +111,125 @@ describe('downloadYouTubeChunked', () => {
     expect(calls).toHaveLength(1);
   });
 
-  test('a 403 fails immediately with a readable message and no retries', async () => {
+  test('a 403 is treated as a pause: it waits, retries the same piece, then continues', async () => {
+    const source = new Uint8Array(5000).fill(9);
+    const calls: string[] = [];
+    let refusals = 3;
+    const inner = makeFetch(source, calls);
+    const fetchImpl = (async (url: string, init: any) => {
+      if (refusals > 0) {
+        refusals--;
+        calls.push(String(url));
+        return { ok: false, status: 403 } as any;
+      }
+      return (inner as any)(url, init);
+    }) as unknown as typeof fetch;
+    const waits: number[] = [];
+
+    const written = await downloadYouTubeChunked({
+      url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+      headers: {},
+      destUri: 'file:///tmp/c.tmp',
+      onProgress: () => {},
+      shouldStop: () => false,
+      fetchImpl,
+      retryDelayMs: 2000,
+      maxWaitMs: 60_000,
+      sleepImpl: async () => {},
+      onWaiting: ({ waitedMs }) => waits.push(waitedMs),
+    });
+
+    expect(written).toBe(5000);
+    expect(calls).toHaveLength(4); // 3 refusals + 1 success, all for the same range
+    expect(new Set(calls.map((c) => c.match(/range=[\d-]+/)![0])).size).toBe(1);
+    expect(waits).toEqual([0, 2000, 4000]);
+  });
+
+  test('asks for a fresh URL on every third retry and uses it', async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      calls.push(String(url));
+      if (String(url).includes('fresh=1')) {
+        const slice = new Uint8Array(1000).fill(1);
+        return { ok: true, status: 200, arrayBuffer: async () => slice.buffer } as any;
+      }
+      return { ok: false, status: 403 } as any;
+    }) as unknown as typeof fetch;
+    const refreshUrl = jest.fn(async () => 'https://rr2.googlevideo.com/videoplayback?clen=1000&fresh=1&range=0-9');
+
+    const written = await downloadYouTubeChunked({
+      url: 'https://rr1.googlevideo.com/videoplayback?clen=1000',
+      headers: {},
+      destUri: 'file:///tmp/e.tmp',
+      onProgress: () => {},
+      shouldStop: () => false,
+      fetchImpl,
+      retryDelayMs: 1000,
+      maxWaitMs: 60_000,
+      sleepImpl: async () => {},
+      refreshUrl,
+    });
+
+    expect(written).toBe(1000);
+    expect(refreshUrl).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(4); // 3 refused on the old URL, then the fresh one
+    expect(calls[3]).toContain('rr2.googlevideo.com');
+    expect(calls[3]).not.toContain('range=0-9&');
+  });
+
+  test('gives up with a readable message when the refusal never lifts', async () => {
     const calls: string[] = [];
     await expect(
       downloadYouTubeChunked({
         url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
         headers: {},
-        destUri: 'file:///tmp/c.tmp',
+        destUri: 'file:///tmp/f.tmp',
         onProgress: () => {},
         shouldStop: () => false,
         fetchImpl: makeFetch(new Uint8Array(5000), calls, 403),
+        retryDelayMs: 10_000,
+        maxWaitMs: 30_000,
+        sleepImpl: async () => {},
       })
-    ).rejects.toThrow('HTTP 403');
-    expect(calls).toHaveLength(1);
+    ).rejects.toThrow('kept refusing the download (HTTP 403)');
+    expect(calls).toHaveLength(4); // first try + 3 waits of 10 s
     expect(mockClosed).toBe(true);
+  });
+
+  test('a 404 or 410 still fails immediately', async () => {
+    const calls: string[] = [];
+    await expect(
+      downloadYouTubeChunked({
+        url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+        headers: {},
+        destUri: 'file:///tmp/g.tmp',
+        onProgress: () => {},
+        shouldStop: () => false,
+        fetchImpl: makeFetch(new Uint8Array(5000), calls, 410),
+        sleepImpl: async () => {},
+      })
+    ).rejects.toThrow('HTTP 410');
+    expect(calls).toHaveLength(1);
+  });
+
+  test('Cancel works while waiting out a refusal', async () => {
+    let stop = false;
+    const calls: string[] = [];
+    await expect(
+      downloadYouTubeChunked({
+        url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+        headers: {},
+        destUri: 'file:///tmp/h.tmp',
+        onProgress: () => {},
+        shouldStop: () => stop,
+        fetchImpl: makeFetch(new Uint8Array(5000), calls, 403),
+        retryDelayMs: 10_000,
+        sleepImpl: async () => {
+          stop = true;
+        },
+      })
+    ).rejects.toBeInstanceOf(DownloadStoppedError);
+    expect(calls).toHaveLength(1);
   });
 
   test('stops cleanly when asked to', async () => {
