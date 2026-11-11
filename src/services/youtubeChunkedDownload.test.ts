@@ -1,15 +1,22 @@
 const mockWrites: Uint8Array[] = [];
 let mockClosed = false;
+let mockExisting: { exists: boolean; size: number } = { exists: false, size: 0 };
+let mockOpenMode: string | undefined;
+let mockDeleted = false;
 
 jest.mock(
   'expo-file-system',
   () => ({
-    FileMode: { Truncate: 'wt' },
+    FileMode: { Truncate: 'wt', Append: 'wa' },
     File: class {
-      exists = false;
-      delete() {}
+      exists = mockExisting.exists;
+      size = mockExisting.size;
+      delete() {
+        mockDeleted = true;
+      }
       create() {}
-      open() {
+      open(mode?: string) {
+        mockOpenMode = mode;
         return {
           writeBytes: async (b: Uint8Array) => {
             mockWrites.push(b);
@@ -47,6 +54,9 @@ function makeFetch(source: Uint8Array, calls: string[], failStatus?: number): ty
 beforeEach(() => {
   mockWrites.length = 0;
   mockClosed = false;
+  mockExisting = { exists: false, size: 0 };
+  mockOpenMode = undefined;
+  mockDeleted = false;
 });
 
 describe('url helpers', () => {
@@ -196,6 +206,26 @@ describe('downloadYouTubeChunked', () => {
     expect(mockClosed).toBe(true);
   });
 
+  test('a request that never answers times out instead of freezing the download', async () => {
+    const fetchImpl = ((_url: string, init: any) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as unknown as typeof fetch;
+
+    await expect(
+      downloadYouTubeChunked({
+        url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+        headers: {},
+        destUri: 'file:///tmp/t.tmp',
+        onProgress: () => {},
+        shouldStop: () => false,
+        fetchImpl,
+        requestTimeoutMs: 30,
+        sleepImpl: async () => {},
+      })
+    ).rejects.toThrow('timed out');
+  });
+
   test('a 404 or 410 still fails immediately', async () => {
     const calls: string[] = [];
     await expect(
@@ -230,6 +260,81 @@ describe('downloadYouTubeChunked', () => {
       })
     ).rejects.toBeInstanceOf(DownloadStoppedError);
     expect(calls).toHaveLength(1);
+  });
+
+  test('resume continues from the bytes already on disk and appends', async () => {
+    const source = new Uint8Array(10_000).map((_, i) => i % 251);
+    const calls: string[] = [];
+    mockExisting = { exists: true, size: 4000 };
+    const progress: number[] = [];
+
+    const written = await downloadYouTubeChunked({
+      url: 'https://rr1.googlevideo.com/videoplayback?clen=10000',
+      headers: {},
+      destUri: 'file:///tmp/r.tmp',
+      resume: true,
+      onProgress: (w) => progress.push(w),
+      shouldStop: () => false,
+      fetchImpl: makeFetch(source, calls),
+    });
+
+    expect(written).toBe(10_000);
+    expect(mockOpenMode).toBe('wa');
+    expect(mockDeleted).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('range=4000-9999');
+    expect(progress[0]).toBe(4000); // the bar jumps straight to where it was
+    expect(Array.from(mockWrites[0]!)).toEqual(Array.from(source.slice(4000)));
+  });
+
+  test('resume with a finished file downloads nothing', async () => {
+    const calls: string[] = [];
+    mockExisting = { exists: true, size: 5000 };
+    const written = await downloadYouTubeChunked({
+      url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+      headers: {},
+      destUri: 'file:///tmp/done.tmp',
+      resume: true,
+      onProgress: () => {},
+      shouldStop: () => false,
+      fetchImpl: makeFetch(new Uint8Array(5000), calls),
+    });
+    expect(written).toBe(5000);
+    expect(calls).toHaveLength(0);
+  });
+
+  test('resume starts over when the file on disk is larger than the stream', async () => {
+    const calls: string[] = [];
+    mockExisting = { exists: true, size: 9000 };
+    const written = await downloadYouTubeChunked({
+      url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+      headers: {},
+      destUri: 'file:///tmp/big.tmp',
+      resume: true,
+      onProgress: () => {},
+      shouldStop: () => false,
+      fetchImpl: makeFetch(new Uint8Array(5000), calls),
+    });
+    expect(written).toBe(5000);
+    expect(mockDeleted).toBe(true);
+    expect(mockOpenMode).toBe('wt');
+    expect(calls[0]).toContain('range=0-4999');
+  });
+
+  test('without resume an existing file is replaced', async () => {
+    const calls: string[] = [];
+    mockExisting = { exists: true, size: 2000 };
+    await downloadYouTubeChunked({
+      url: 'https://rr1.googlevideo.com/videoplayback?clen=5000',
+      headers: {},
+      destUri: 'file:///tmp/fresh.tmp',
+      onProgress: () => {},
+      shouldStop: () => false,
+      fetchImpl: makeFetch(new Uint8Array(5000), calls),
+    });
+    expect(mockDeleted).toBe(true);
+    expect(mockOpenMode).toBe('wt');
+    expect(calls[0]).toContain('range=0-4999');
   });
 
   test('stops cleanly when asked to', async () => {

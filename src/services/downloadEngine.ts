@@ -42,9 +42,50 @@ const activeDownloadSessions = new Map<string, FileSystem.DownloadResumable>();
  */
 export function isResumeSupported(job: Pick<DownloadJob, 'media'>): boolean {
   if (job.media.platform === 'youtube' && job.media.format !== 'mp3') {
-    return false;
+    // Streams fetched directly from YouTube on the phone are written piece by piece, in order, so they
+    // can continue from the bytes already on disk. Anything that went through the old backend cannot.
+    return /googlevideo\.com/i.test(String(job.media.mediaUrl ?? ''));
   }
   return true;
+}
+
+/** Part files an on-device YouTube download can leave behind (single file, or HD video + audio). */
+function youTubePartPaths(tempPath: string): string[] {
+  return [tempPath, `${tempPath}.video`, `${tempPath}.audio`];
+}
+
+async function deleteYouTubeParts(tempPath: string): Promise<void> {
+  for (const path of youTubePartPaths(tempPath)) {
+    try {
+      await FileSystem.deleteAsync(path, { idempotent: true });
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+/** Bytes already saved by an earlier attempt, across all part files. */
+async function youTubePreservedBytes(tempPath: string): Promise<number> {
+  let sum = 0;
+  for (const path of youTubePartPaths(tempPath)) {
+    try {
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists && !info.isDirectory && info.size > 0) sum += info.size;
+    } catch {
+      // Ignore
+    }
+  }
+  return sum;
+}
+
+/** Old stream links expire after a few hours, so a resumed download asks for fresh ones first. */
+async function freshYouTubeUrl(jobId: string, part: 'video' | 'audio', fallback: string): Promise<string> {
+  try {
+    const fresh = await makeYouTubeUrlRefresher(jobId, part)();
+    return fresh || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 export function getActiveDownloadSessionsCount(): number {
@@ -225,7 +266,8 @@ async function runYouTubeChunkedDownload(
   safeFilename: string,
   headers: Record<string, string>,
   estimatedTotal: number | undefined,
-  onProgress: (data: FileSystem.DownloadProgressData) => void
+  onProgress: (data: FileSystem.DownloadProgressData) => void,
+  isResume: boolean = false
 ): Promise<void> {
   let stopped = false;
   const stopper = {
@@ -245,11 +287,13 @@ async function runYouTubeChunkedDownload(
 
   try {
     const { downloadYouTubeChunked } = await import('./youtubeChunkedDownload');
+    const streamUrl = isResume ? await freshYouTubeUrl(jobId, 'video', mediaUrl) : mediaUrl;
     await downloadYouTubeChunked({
-      url: mediaUrl,
+      url: streamUrl,
       headers,
       destUri: tempPath,
       totalBytes: estimatedTotal,
+      resume: isResume,
       shouldStop: () => stopped,
       onWaiting: youTubeWaitNotice(jobId),
       refreshUrl: makeYouTubeUrlRefresher(jobId, 'video'),
@@ -265,17 +309,13 @@ async function runYouTubeChunkedDownload(
     if (stoppedByUser()) {
       return;
     }
-    try {
-      await FileSystem.deleteAsync(tempPath, { idempotent: true });
-    } catch {
-      // Ignore
-    }
+    // The bytes already saved are good, so keep them: Retry continues from there.
     updateJobInQueue(jobId, {
       state: 'FAILED',
       statusMessage: 'Download failed',
       errorMessage: err?.message || 'Download was interrupted. Please retry.',
       isRetryable: true,
-      supportsResume: false,
+      supportsResume: true,
     });
     processNextQueuedJob().catch(() => {});
     return;
@@ -299,7 +339,8 @@ async function runYouTubeAdaptiveDownload(
   tempPath: string,
   safeFilename: string,
   headers: Record<string, string>,
-  onProgress: (data: FileSystem.DownloadProgressData) => void
+  onProgress: (data: FileSystem.DownloadProgressData) => void,
+  isResume: boolean = false
 ): Promise<void> {
   const videoPart = `${tempPath}.video`;
   const audioPart = `${tempPath}.audio`;
@@ -331,6 +372,11 @@ async function runYouTubeAdaptiveDownload(
   let phase: 'download' | 'join' = 'download';
   try {
     const { downloadYouTubeChunked, parseContentLengthParam } = await import('./youtubeChunkedDownload');
+    if (isResume) {
+      // The links saved with the job may have expired while it was paused.
+      videoUrl = await freshYouTubeUrl(jobId, 'video', videoUrl);
+      audioUrl = await freshYouTubeUrl(jobId, 'audio', audioUrl);
+    }
     const videoTotal = parseContentLengthParam(videoUrl);
     const audioTotal = parseContentLengthParam(audioUrl);
     const grandTotal = videoTotal !== undefined && audioTotal !== undefined ? videoTotal + audioTotal : undefined;
@@ -351,14 +397,17 @@ async function runYouTubeAdaptiveDownload(
       }
     }
 
-    const videoBytes = await downloadYouTubeChunked({
-      url: videoUrl,
+    // Audio first: it is small (about 30 MB), and YouTube tends to start pausing us after a lot of
+    // video has been fetched, so the audio should not be left for the end.
+    const audioBytes = await downloadYouTubeChunked({
+      url: audioUrl,
       headers,
-      destUri: videoPart,
-      totalBytes: videoTotal,
+      destUri: audioPart,
+      totalBytes: audioTotal,
+      resume: isResume,
       shouldStop: () => stopped,
       onWaiting: youTubeWaitNotice(jobId),
-      refreshUrl: makeYouTubeUrlRefresher(jobId, 'video'),
+      refreshUrl: makeYouTubeUrlRefresher(jobId, 'audio'),
       onProgress: (written) =>
         onProgress({
           totalBytesWritten: written,
@@ -366,22 +415,23 @@ async function runYouTubeAdaptiveDownload(
         } as FileSystem.DownloadProgressData),
     });
     await downloadYouTubeChunked({
-      url: audioUrl,
+      url: videoUrl,
       headers,
-      destUri: audioPart,
-      totalBytes: audioTotal,
+      destUri: videoPart,
+      totalBytes: videoTotal,
+      resume: isResume,
       shouldStop: () => stopped,
       onWaiting: youTubeWaitNotice(jobId),
-      refreshUrl: makeYouTubeUrlRefresher(jobId, 'audio'),
+      refreshUrl: makeYouTubeUrlRefresher(jobId, 'video'),
       onProgress: (written) =>
         onProgress({
-          totalBytesWritten: videoBytes + written,
+          totalBytesWritten: audioBytes + written,
           totalBytesExpectedToWrite: grandTotal ?? -1,
         } as FileSystem.DownloadProgressData),
     });
 
     if (stoppedByUser()) {
-      await removeParts();
+      // Paused (keep the parts) or cancelled (cancelDownload deletes them).
       activeDownloadSessions.delete(jobId);
       return;
     }
@@ -398,7 +448,9 @@ async function runYouTubeAdaptiveDownload(
   } catch (err: any) {
     activeDownloadSessions.delete(jobId);
     dismissDownloadNotification(jobId).catch(() => {});
-    await removeParts();
+    // Pause, cancel and download errors keep the part files so the download can continue;
+    // only a failed join throws them away (cancel and remove delete them separately).
+    if (phase === 'join') await removeParts();
     if (stoppedByUser()) {
       return;
     }
@@ -413,7 +465,7 @@ async function runYouTubeAdaptiveDownload(
       statusMessage: phase === 'join' ? 'Could not join video and sound' : 'Download failed',
       errorMessage: phase === 'join' ? `Could not join video and sound: ${detail}` : detail,
       isRetryable: true,
-      supportsResume: false,
+      supportsResume: phase === 'download',
     });
     processNextQueuedJob().catch(() => {});
     return;
@@ -437,12 +489,20 @@ async function executeDownloadStream(
     const currentJob = getQueue().find((j) => j.id === jobId);
     const canResume = currentJob ? isResumeSupported(currentJob) : false;
 
+    const isYouTubeDirect =
+      currentJob?.media.platform === 'youtube' && /googlevideo\.com/i.test(mediaUrl);
+
     let resumeOffset = 0;
     if (isResume && canResume) {
       try {
-        const fileInfo = await FileSystem.getInfoAsync(tempPath);
-        if (fileInfo.exists && !fileInfo.isDirectory && fileInfo.size > 0) {
-          resumeOffset = fileInfo.size;
+        if (isYouTubeDirect) {
+          // HD downloads keep two part files, so count both.
+          resumeOffset = await youTubePreservedBytes(tempPath);
+        } else {
+          const fileInfo = await FileSystem.getInfoAsync(tempPath);
+          if (fileInfo.exists && !fileInfo.isDirectory && fileInfo.size > 0) {
+            resumeOffset = fileInfo.size;
+          }
         }
       } catch {
         resumeOffset = 0;
@@ -517,7 +577,8 @@ async function executeDownloadStream(
         tempPath,
         safeFilename,
         currentJob.media.httpHeaders || {},
-        callback
+        callback,
+        isResume && canResume
       );
       return;
     }
@@ -531,7 +592,8 @@ async function executeDownloadStream(
         safeFilename,
         currentJob.media.httpHeaders || {},
         estimatedTotal,
-        callback
+        callback,
+        isResume && canResume
       );
       return;
     }
@@ -793,6 +855,19 @@ export async function resumeDownload(jobId: string): Promise<boolean> {
   const safeName = sanitizeFilename(job.media.title);
   const tempPath = job.tempFilePath || `${DOWNLOADS_TEMP_DIR}${jobId}.tmp`;
 
+  if (job.media.platform === 'youtube' && job.media.format !== 'mp3' && isResumeSupported(job)) {
+    updateJobInQueue(jobId, {
+      state: 'DOWNLOADING',
+      statusMessage: 'Resuming download...',
+    });
+    // Let the paused download finish writing its last piece first, so two writers never touch one file.
+    for (let i = 0; i < 240 && activeDownloadSessions.has(jobId); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    executeDownloadStream(jobId, job.media.mediaUrl, tempPath, safeName, true);
+    return true;
+  }
+
   if (session) {
     try {
       updateJobInQueue(jobId, {
@@ -835,11 +910,7 @@ export async function cancelDownload(jobId: string): Promise<void> {
 
   const job = getQueue().find((j) => j.id === jobId);
   if (job?.tempFilePath) {
-    try {
-      await FileSystem.deleteAsync(job.tempFilePath, { idempotent: true });
-    } catch {
-      // Ignore
-    }
+    await deleteYouTubeParts(job.tempFilePath);
   }
 
   updateJobInQueue(jobId, {
@@ -863,11 +934,7 @@ export async function removeDownloadJob(jobId: string): Promise<void> {
 
   const job = getQueue().find((j) => j.id === jobId);
   if (job?.tempFilePath) {
-    try {
-      await FileSystem.deleteAsync(job.tempFilePath, { idempotent: true });
-    } catch {
-      // Ignore
-    }
+    await deleteYouTubeParts(job.tempFilePath);
   }
 
   removeJobFromQueue(jobId);
@@ -890,9 +957,13 @@ export async function retryDownload(jobId: string): Promise<void> {
   let preservedBytes = 0;
   if (canResume) {
     try {
-      const fileInfo = await FileSystem.getInfoAsync(tempPath);
-      if (fileInfo.exists && !fileInfo.isDirectory && fileInfo.size > 0) {
-        preservedBytes = fileInfo.size;
+      if (job.media.platform === 'youtube' && job.media.format !== 'mp3') {
+        preservedBytes = await youTubePreservedBytes(tempPath);
+      } else {
+        const fileInfo = await FileSystem.getInfoAsync(tempPath);
+        if (fileInfo.exists && !fileInfo.isDirectory && fileInfo.size > 0) {
+          preservedBytes = fileInfo.size;
+        }
       }
     } catch {
       preservedBytes = 0;

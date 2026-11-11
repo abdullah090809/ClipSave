@@ -9,6 +9,7 @@ import { File, FileMode } from 'expo-file-system';
 /** Size of each ranged request. Smaller pieces also give smoother progress updates. */
 export const CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_ATTEMPTS_PER_CHUNK = 3;
+const REQUEST_TIMEOUT_MS = 45_000;
 
 /**
  * YouTube answers HTTP 403 (sometimes 429) after a burst of downloading and lifts the block by itself.
@@ -44,6 +45,14 @@ export interface ChunkedDownloadOptions {
   retryDelayMs?: number;
   /** Give up on one piece after waiting this long in total. */
   maxWaitMs?: number;
+  /** Give up on one request if it makes no progress for this long (default 45 s). */
+  requestTimeoutMs?: number;
+  /**
+   * Continue a partly downloaded file instead of starting over. The pieces are written in order, so
+   * the size of the file on disk is exactly how many bytes are already done. Ignored (starts from 0)
+   * when the file is missing, empty, or larger than the stream.
+   */
+  resume?: boolean;
   /** Test hook. */
   sleepImpl?: (ms: number) => Promise<void>;
 }
@@ -66,16 +75,34 @@ async function fetchChunk(
   baseUrl: string,
   start: number,
   end: number,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  timeoutMs: number
 ): Promise<Uint8Array> {
   const sep = baseUrl.includes('?') ? '&' : '?';
-  const response = await fetchImpl(`${baseUrl}${sep}range=${start}-${end}`, { headers });
-  if (!response.ok && response.status !== 206) {
-    const err = new Error(`YouTube refused the download (HTTP ${response.status}).`);
-    (err as Error & { status?: number }).status = response.status;
+  // A stalled connection must not freeze the download forever, so every piece has a deadline.
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller?.abort();
+  }, timeoutMs);
+  try {
+    const response = await fetchImpl(`${baseUrl}${sep}range=${start}-${end}`, {
+      headers,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!response.ok && response.status !== 206) {
+      const err = new Error(`YouTube refused the download (HTTP ${response.status}).`);
+      (err as Error & { status?: number }).status = response.status;
+      throw err;
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  } catch (err) {
+    if (timedOut) throw new Error('The connection to YouTube timed out.');
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return new Uint8Array(await response.arrayBuffer());
 }
 
 /** Resolves with the number of bytes written. Throws DownloadStoppedError if shouldStop() turns true. */
@@ -86,9 +113,16 @@ export async function downloadYouTubeChunked(opts: ChunkedDownloadOptions): Prom
     opts.totalBytes && opts.totalBytes > 0 ? opts.totalBytes : parseContentLengthParam(opts.url);
 
   const file = new File(opts.destUri);
-  if (file.exists) file.delete();
-  file.create({ overwrite: true });
-  const handle = file.open(FileMode.Truncate);
+  let alreadyOnDisk = 0;
+  if (opts.resume && total !== undefined && file.exists) {
+    const size = Number(file.size) || 0;
+    if (size > 0 && size <= total) alreadyOnDisk = size;
+  }
+  if (alreadyOnDisk === 0) {
+    if (file.exists) file.delete();
+    file.create({ overwrite: true });
+  }
+  const handle = file.open(alreadyOnDisk > 0 ? FileMode.Append : FileMode.Truncate);
 
   const retryDelayMs = opts.retryDelayMs ?? COOLDOWN_RETRY_MS;
   const maxWaitMs = opts.maxWaitMs ?? COOLDOWN_MAX_WAIT_MS;
@@ -107,8 +141,9 @@ export async function downloadYouTubeChunked(opts: ChunkedDownloadOptions): Prom
     if (opts.shouldStop()) throw new DownloadStoppedError();
   };
 
-  let written = 0;
+  let written = alreadyOnDisk;
   try {
+    if (alreadyOnDisk > 0) opts.onProgress(written, total);
     while (total === undefined || written < total) {
       if (opts.shouldStop()) throw new DownloadStoppedError();
 
@@ -122,7 +157,7 @@ export async function downloadYouTubeChunked(opts: ChunkedDownloadOptions): Prom
       let cooldownTries = 0;
       while (!bytes) {
         try {
-          bytes = await fetchChunk(fetchImpl, currentBase, start, end, opts.headers);
+          bytes = await fetchChunk(fetchImpl, currentBase, start, end, opts.headers, opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
         } catch (err) {
           const status = (err as { status?: number }).status;
           if (status === 404 || status === 410) throw err;
