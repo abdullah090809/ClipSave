@@ -749,6 +749,18 @@ async def extract_media_metadata(url: str, base_url: Optional[str] = None) -> Re
                     message="The requested video is unavailable or has been deleted.",
                     status_code=404,
                 )
+            if is_facebook and "cannot parse data" in err_msg:
+                # yt-dlp raises this when Facebook serves a page without video data: private or
+                # friends-only videos, removed videos, a login wall for this server, or a page change
+                # that yt-dlp has not caught up with yet (open upstream issue #17849).
+                raise ExtractionError(
+                    code="FACEBOOK_UNREADABLE",
+                    message=(
+                        "Facebook did not give this server the video data. The video may be private, "
+                        "friends-only or removed, or Facebook is blocking the request. Try a public video link."
+                    ),
+                    status_code=422,
+                )
             if "geo" in err_msg or "region" in err_msg:
                 raise ExtractionError(
                     code="MEDIA_GEOBLOCKED",

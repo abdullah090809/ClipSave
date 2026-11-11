@@ -264,3 +264,25 @@ async def test_video_with_audio_priority():
                 assert session is not None
                 # Must be the URL that has audio included
                 assert session["media_url"] == "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+
+
+@pytest.mark.asyncio
+async def test_facebook_cannot_parse_data_gives_clear_message(monkeypatch):
+    """yt-dlp's raw 'Cannot parse data' text for Facebook becomes a readable error."""
+    import yt_dlp
+    from app.services import extractor
+    from app.services.extractor import ExtractionError
+
+    monkeypatch.setattr(extractor.settings, "ENABLE_MOCK_EXTRACTOR", False, raising=False)
+
+    def boom(url):
+        raise yt_dlp.utils.DownloadError(
+            "ERROR: [facebook] 292352658528292936: Cannot parse data; please report this issue"
+        )
+
+    monkeypatch.setattr(extractor, "_run_ytdlp_extract", boom)
+    with pytest.raises(ExtractionError) as exc:
+        await extractor.extract_media_metadata("https://www.facebook.com/reel/292352658528292936")
+    assert exc.value.code == "FACEBOOK_UNREADABLE"
+    assert "private" in exc.value.message.lower()
+    assert "yt-dlp" not in exc.value.message
