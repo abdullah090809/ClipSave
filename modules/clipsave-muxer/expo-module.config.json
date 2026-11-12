@@ -1,6 +1,9 @@
 {
   "platforms": ["android"],
   "android": {
-    "modules": ["expo.modules.clipsavemuxer.ClipSaveMuxerModule"]
+    "modules": [
+      "expo.modules.clipsavemuxer.ClipSaveMuxerModule",
+      "expo.modules.clipsavemuxer.ClipSaveShareModule"
+    ]
   }
 }

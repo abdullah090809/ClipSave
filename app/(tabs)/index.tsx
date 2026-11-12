@@ -22,6 +22,7 @@ import { typography } from '../../src/theme/typography';
 import { validateMediaUrl, detectPlatform } from '../../src/utils/urlValidator';
 import { resolveMediaUrl, checkAndWarmBackend } from '../../src/services/apiClient';
 import { startDownload } from '../../src/services/downloadEngine';
+import { getInitialSharedUrl, subscribeToSharedUrls } from '../../src/services/shareIntent';
 import { ensureMediaLibraryPermissions } from '../../src/services/mediaManager';
 import { formatBytes, formatDuration } from '../../src/utils/formatters';
 import { ResolvedMedia, MediaFormatOption, ResolveError } from '../../src/types';
@@ -188,6 +189,23 @@ export default function HomeScreen() {
       setSelectedFormat(null);
     }
   }, [params.prefill, params.ts]);
+
+  // Links shared to ClipSave from other apps (Android share sheet)
+  useEffect(() => {
+    const applySharedUrl = (url: string) => {
+      setInputUrl(url);
+      setErrorMessage(null);
+      setResolvedMedia(null);
+      setSelectedFormat(null);
+      setClipboardDetectedUrl(null);
+      checkAndWarmBackend().catch(() => {});
+      router.navigate('/');
+    };
+    const initial = getInitialSharedUrl();
+    if (initial) applySharedUrl(initial);
+    return subscribeToSharedUrls(applySharedUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePaste = async () => {
     try {
